@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Internet: para consultar LRCLIB y AudD -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Micrófono: para el reconocimiento de canciones tipo Shazam (AudD) -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <!-- Letra fuera de la app: servicio en primer plano + su notificación -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Burbuja flotante con la letra encima de otras apps -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+    <!-- Instalar actualizaciones descargadas de GitHub Releases -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+
+    <application
+        android:label="Letras"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!--
+              Redirect URI del login de Spotify (esquema propio). Spotify
+              sigue permitiendo esquemas custom como este (no hace falta
+              https ni loopback) — ver blog de Spotify de feb. 2025.
+              El navegador vuelve aquí cuando el usuario termina de loguearse.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="io.letras.app" android:host="spotify-callback"/>
+            </intent-filter>
+        </activity>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!--
+          Servicio "oyente de notificaciones" (ver NowPlayingListenerService.kt).
+          Es lo que hace que aparezca la opción de esta app en:
+          Ajustes > Apps > Acceso especial > Acceso a notificaciones.
+          Sin esto, la detección automática de "reproduciendo ahora" no funciona.
+        -->
+        <service
+            android:name=".NowPlayingListenerService"
+            android:label="Letras – Detección de música"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!--
+          Sigue la canción por su cuenta y muestra la línea actual en una
+          notificación fija, en el widget y en la burbuja flotante.
+        -->
+        <service
+            android:name=".LiveLyricsService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Muestra en una notificación la línea de la letra que se está cantando en la música que suena en otra app" />
+        </service>
+
+        <!-- Widget de pantalla de inicio con la línea actual -->
+        <receiver
+            android:name=".LyricsWidgetProvider"
+            android:exported="false"
+            android:label="Letra actual">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/lyrics_widget_info" />
+        </receiver>
+
+        <!-- Para abrir el APK de una actualización con el instalador -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
+    </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Necesario para poder abrir el navegador del login de Spotify -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+</manifest>
