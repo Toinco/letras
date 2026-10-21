@@ -100,6 +100,34 @@ class SyncedLyricsView extends StatefulWidget {
   State<SyncedLyricsView> createState() => _SyncedLyricsViewState();
 }
 
+/// El tamaño de letra más grande con el que [text] entra en la caja del
+/// modo karaoke. También achica hasta que la palabra más larga entre entera
+/// en una línea: si no, Flutter la parte al medio ("ev / erybody").
+double fitFocusFontSize(
+  String text, {
+  required double maxWidth,
+  required double maxHeight,
+  required double maxSize,
+  TextScaler textScaler = TextScaler.noScaling,
+}) {
+  final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+  var size = maxSize;
+  while (size > 22) {
+    final style = TextStyle(fontSize: size, fontWeight: FontWeight.w800, height: 1.15);
+    TextPainter painter(String t) => TextPainter(
+          text: TextSpan(text: t, style: style),
+          textDirection: TextDirection.ltr,
+          textAlign: TextAlign.center,
+          textScaler: textScaler,
+        );
+    final wordsFit = words.every((w) => (painter(w)..layout()).width <= maxWidth);
+    final tp = painter(text)..layout(maxWidth: maxWidth);
+    if (wordsFit && tp.height <= maxHeight) return size;
+    size *= 0.9;
+  }
+  return size;
+}
+
 /// Una línea "vacía" o de solo símbolos musicales es un instrumental.
 bool _isInterlude(String text) {
   final t = text.replaceAll(RegExp(r'[♪♫♬♩\s.…·*-]'), '');
@@ -712,24 +740,6 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
 
   // ---------------- Modo "solo la línea actual" ----------------
 
-  /// El tamaño de letra más grande con el que [text] entra en la caja.
-  double _fitFontSize(String text, double maxWidth, double maxHeight, double maxSize) {
-    var size = maxSize;
-    while (size > 22) {
-      final tp = TextPainter(
-        text: TextSpan(
-          text: text,
-          style: TextStyle(fontSize: size, fontWeight: FontWeight.w800, height: 1.15),
-        ),
-        textDirection: TextDirection.ltr,
-        textAlign: TextAlign.center,
-      )..layout(maxWidth: maxWidth);
-      if (tp.height <= maxHeight) return size;
-      size *= 0.9;
-    }
-    return size;
-  }
-
   Widget _buildFocus(double scale) {
     return LayoutBuilder(builder: (context, constraints) {
       final width = constraints.maxWidth - 48;
@@ -751,7 +761,13 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
         );
       } else {
         final text = widget.lines[index].text;
-        final size = _fitFontSize(text, width, height * 0.55, math.min(height * 0.16, 140) * scale);
+        final size = fitFocusFontSize(
+          text,
+          maxWidth: width,
+          maxHeight: height * 0.55,
+          maxSize: math.min(height * 0.16, 140) * scale,
+          textScaler: MediaQuery.textScalerOf(context),
+        );
         current = KeyedSubtree(
           key: ValueKey('line$index'),
           child: _buildLineContent(

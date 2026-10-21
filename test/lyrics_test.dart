@@ -161,5 +161,25 @@ void main() {
       await controller.close();
       await tester.pumpWidget(const SizedBox());
     });
+
+    testWidgets('en modo karaoke no parte las palabras largas', (tester) async {
+      const width = 360.0;
+      final size = fitFocusFontSize(
+        'Just one thing everybody wants',
+        maxWidth: width,
+        maxHeight: 500,
+        maxSize: 140,
+      );
+      final word = TextPainter(
+        text: TextSpan(
+          text: 'everybody',
+          style: TextStyle(fontSize: size, fontWeight: FontWeight.w800, height: 1.15),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      expect(word.width, lessThanOrEqualTo(width));
+      // Y con mucho lugar usa letra grande.
+      expect(fitFocusFontSize('Hola', maxWidth: 2000, maxHeight: 1000, maxSize: 140), 140);
+    });
   });
 }

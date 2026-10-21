@@ -21,6 +21,16 @@ Reproduce música en Spotify, YouTube Music o la app que uses, y **Letras** dete
 sola qué suena y muestra la letra moviéndose al ritmo de la canción. Sin
 iniciar sesión, sin anuncios.
 
+<p align="center">
+  <img src="assets/screenshots/reproduciendo.jpg" width="31%" alt="La letra de City of Stars sincronizada mientras suena en Spotify">
+  <img src="assets/screenshots/traduccion.jpg" width="31%" alt="Karaoke llenándose palabra por palabra con la traducción debajo">
+  <img src="assets/screenshots/menu.jpg" width="31%" alt="Menú de la canción: ver, descargar, corregir, sincronizar y modo karaoke">
+</p>
+
+<p align="center">
+  <img src="assets/screenshots/karaoke.jpg" width="94%" alt="Modo karaoke en horizontal: solo la línea actual, enorme">
+</p>
+
 ## Qué hace
 
 🎤 **Karaoke de verdad** — la línea actual se va llenando palabra por
