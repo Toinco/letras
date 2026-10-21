@@ -11,6 +11,7 @@ import 'favorites_screen.dart';
 import 'spotify_playlists_screen.dart';
 import 'stats_screen.dart';
 import '../providers.dart';
+import '../utils/platform.dart';
 
 /// Ajustes de la app, por secciones: cómo se ve la letra, traducción,
 /// letra fuera de la app, detección, fuentes, cuentas y "acerca de".
@@ -112,7 +113,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   Future<void> _saveClaudeKey() async {
     await _settingsService.setClaudeApiKey(_claudeKeyController.text);
-    _snack('API key de Anthropic guardada (solo en este teléfono).');
+    _snack('API key de Anthropic guardada (solo en este dispositivo).');
   }
 
   Future<void> _saveSpotifyClientId() async {
@@ -128,7 +129,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
   /// La notificación con la letra necesita permiso de notificaciones en
   /// Android 13 o más nuevo.
   Future<void> _setLiveNotification(bool value) async {
-    if (value) {
+    if (value && !isMac) {
       final status = await Permission.notification.request();
       if (!status.isGranted) {
         _snack('Sin permiso de notificaciones no se puede mostrar la letra ahí.');
@@ -386,7 +387,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       _hint('Crea una key en console.anthropic.com > API Keys y pégala aquí. '
-                          'Queda guardada solo en este teléfono. Si falla, se usa el '
+                          'Queda guardada solo en este dispositivo. Si falla, se usa el '
                           'traductor común.'),
                       _tokenField(_claudeKeyController, 'sk-ant-...', _saveClaudeKey,
                           obscure: true),
@@ -396,34 +397,48 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
           // ------------------------------------------------ Fuera de la app
           _section('Letra fuera de la app'),
-          _switch(
-            notifier: SettingsService.liveNotification,
-            title: 'Notificación con la línea actual',
-            subtitle: 'Ves lo que se está cantando sin abrir la app (también en la '
-                'pantalla de bloqueo). Necesario para el widget.',
-            onChanged: _setLiveNotification,
-          ),
-          _switch(
-            notifier: SettingsService.floatingBubble,
-            title: 'Burbuja flotante',
-            subtitle: _canDrawOverlays
-                ? 'La letra flota encima de Spotify u otras apps. Arrástrala para '
-                    'moverla; un toque la achica.'
-                : 'Necesita el permiso "Mostrar sobre otras apps".',
-            onChanged: _setBubble,
-          ),
-          _hint(_hasWidgets
-              ? 'Tienes el widget "Letra actual" en la pantalla de inicio.'
-              : 'Widget: mantén apretado el fondo de la pantalla de inicio > Widgets > '
-                  'Letras > "Letra actual". Se actualiza mientras esté prendida la '
-                  'notificación o la burbuja.'),
+          if (isMac)
+            _switch(
+              notifier: SettingsService.liveNotification,
+              title: 'Letra en la barra de menú',
+              subtitle: 'La línea que se está cantando aparece arriba, junto al reloj. '
+                  'Un clic abre Letras.',
+              onChanged: _setLiveNotification,
+            )
+          else ...[
+            _switch(
+              notifier: SettingsService.liveNotification,
+              title: 'Notificación con la línea actual',
+              subtitle: 'Ves lo que se está cantando sin abrir la app (también en la '
+                  'pantalla de bloqueo). Necesario para el widget.',
+              onChanged: _setLiveNotification,
+            ),
+            _switch(
+              notifier: SettingsService.floatingBubble,
+              title: 'Burbuja flotante',
+              subtitle: _canDrawOverlays
+                  ? 'La letra flota encima de Spotify u otras apps. Arrástrala para '
+                      'moverla; un toque la achica.'
+                  : 'Necesita el permiso "Mostrar sobre otras apps".',
+              onChanged: _setBubble,
+            ),
+            _hint(_hasWidgets
+                ? 'Tienes el widget "Letra actual" en la pantalla de inicio.'
+                : 'Widget: mantén apretado el fondo de la pantalla de inicio > Widgets > '
+                    'Letras > "Letra actual". Se actualiza mientras esté prendida la '
+                    'notificación o la burbuja.'),
+          ],
 
           // ------------------------------------------------ Detección
           _section('Detección y reproducción'),
           Text(
-            _accessGranted
-                ? 'Acceso a notificaciones concedido: la app detecta lo que escuchas.'
-                : 'Acceso a notificaciones no concedido: actívalo para detectar la música.',
+            isMac
+                ? 'Letras detecta lo que suena en Spotify y en Música. Si no detecta nada, '
+                    'revisa que Letras tenga permiso en Ajustes del Sistema > Privacidad '
+                    'y seguridad > Automatización.'
+                : _accessGranted
+                    ? 'Acceso a notificaciones concedido: la app detecta lo que escuchas.'
+                    : 'Acceso a notificaciones no concedido: actívalo para detectar la música.',
             style: const TextStyle(color: AppTheme.textSecondary),
           ),
           const SizedBox(height: 8),
@@ -432,7 +447,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
               await _nowPlayingService.openNotificationAccessSettings();
               _load();
             },
-            child: Text(_accessGranted ? 'Abrir ajustes' : 'Dar acceso'),
+            child: Text(isMac
+                ? 'Abrir Automatización'
+                : _accessGranted
+                    ? 'Abrir ajustes'
+                    : 'Dar acceso'),
           ),
           _switch(
             notifier: SettingsService.prefetchNext,

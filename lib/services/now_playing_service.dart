@@ -64,6 +64,9 @@ class NowPlayingTrack {
     'com.sec.android.app.music': 'Samsung Music',
     'com.miui.player': 'Mi Music',
     'app.revanced.android.apps.youtube.music': 'YouTube Music',
+    // Mac
+    'com.spotify.client': 'Spotify',
+    'com.apple.Music': 'Música',
   };
 
   /// Nombre legible de la app que está sonando ("Spotify", "YouTube Music"...).
@@ -169,7 +172,8 @@ class PlayerInfo {
 
 /// Puente hacia el código nativo de Android (MainActivity.kt) que lee la
 /// sesión multimedia activa (MediaSessionManager) a través del permiso de
-/// "acceso a notificaciones".
+/// "acceso a notificaciones". En la Mac responde NowPlayingBridge.swift,
+/// que les pregunta a Spotify y a Música.
 class NowPlayingService {
   static const _methodChannel = MethodChannel('io.letras.app/now_playing');
   static const _eventChannel = EventChannel('io.letras.app/now_playing_stream');

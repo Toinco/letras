@@ -1,5 +1,5 @@
 # Publica una versión nueva: al subir un tag "v1.2.0" arma el APK firmado
-# y lo publica en GitHub Releases. La app instalada lo detecta sola en
+# y la app de Mac (un ZIP con Letras.app) y los publica en GitHub Releases. La app instalada lo detecta sola en
 # Ajustes > Buscar actualizaciones.
 #
 #   git tag v1.2.0 && git push origin v1.2.0
@@ -65,3 +65,38 @@ jobs:
         with:
           files: build/letras-*.apk
           generate_release_notes: true
+
+  macos:
+    # Después del APK, para no crear dos releases a la vez.
+    needs: release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Firma "ad hoc" (sin cuenta de Apple Developer): la primera vez hay
+      # que abrirla desde Ajustes del Sistema > Privacidad y seguridad.
+      - name: Compilar Letras.app
+        env:
+          AUDD_TOKEN: ${{ secrets.AUDD_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          flutter build macos --release \
+            --build-name="$VERSION" \
+            --build-number="${{ github.run_number }}" \
+            --dart-define=UPDATE_REPO="${{ github.repository }}" \
+            --dart-define=AUDD_TOKEN="$AUDD_TOKEN"
+          ditto -c -k --sequesterRsrc --keepParent \
+            build/macos/Build/Products/Release/Letras.app "build/letras-$VERSION-macos.zip"
+
+      - name: Publicar en GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/letras-*-macos.zip

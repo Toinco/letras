@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers.dart';
+import '../utils/platform.dart';
 import '../services/favorites_sync_service.dart';
 import '../services/spotify_playlist_sync.dart';
 import 'downloads_screen.dart';
@@ -92,7 +93,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   @override
   Widget build(BuildContext context) {
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
-    final hideChrome = landscape && _index == 0;
+    // En la Mac una ventana ancha no es "el teléfono acostado": la barra queda.
+    final hideChrome = landscape && _index == 0 && !isMac;
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncImmersive(hideChrome));
     return Scaffold(
       body: IndexedStack(

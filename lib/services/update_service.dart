@@ -5,22 +5,26 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../utils/platform.dart';
 import 'app_http.dart';
 
 /// Una versión publicada en GitHub Releases.
 class AppRelease {
   final String version;
   final String notes;
-  final String apkUrl;
-  final int? apkSize;
+  final String downloadUrl;
+  final int? downloadSize;
 
-  const AppRelease({required this.version, required this.notes, required this.apkUrl, this.apkSize});
+  const AppRelease({required this.version, required this.notes, required this.downloadUrl, this.downloadSize});
 }
 
 /// Actualizaciones automáticas desde GitHub Releases: la app compara su
 /// versión con la última publicada y, si hay una nueva, baja el APK y abre
 /// el instalador de Android. Así a tus amigos les llegan las versiones
 /// nuevas sin pasarles el APK a mano.
+///
+/// En la Mac baja `letras-X.Y.Z-macos.zip`, cierra la app, reemplaza
+/// Letras.app por la nueva y la vuelve a abrir.
 ///
 /// El repositorio se fija al compilar (`--dart-define=UPDATE_REPO=usuario/repo`):
 /// el workflow de GitHub Actions lo pasa solo. En una compilación local,
@@ -68,19 +72,21 @@ class UpdateService {
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final tag = json['tag_name'] as String? ?? '';
     final assets = (json['assets'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-    final apk = assets.where((a) => (a['name'] as String? ?? '').endsWith('.apk')).firstOrNull;
+    final suffix = isMac ? '-macos.zip' : '.apk';
+    final apk = assets.where((a) => (a['name'] as String? ?? '').endsWith(suffix)).firstOrNull;
     if (apk == null) return null;
     if (compareVersions(tag, await currentVersion()) <= 0) return null;
     return AppRelease(
       version: tag.replaceFirst(RegExp(r'^v'), ''),
       notes: json['body'] as String? ?? '',
-      apkUrl: apk['browser_download_url'] as String,
-      apkSize: (apk['size'] as num?)?.toInt(),
+      downloadUrl: apk['browser_download_url'] as String,
+      downloadSize: (apk['size'] as num?)?.toInt(),
     );
   }
 
   /// Baja el APK (informando el progreso de 0 a 1) y abre el instalador.
   Future<void> downloadAndInstall(AppRelease release, {void Function(double)? onProgress}) async {
+    if (isMac) return _updateMac(release, onProgress: onProgress);
     final canInstall = await _channel.invokeMethod<bool>('canInstallPackages') ?? false;
     if (!canInstall) {
       await _channel.invokeMethod('openInstallPermissionSettings');
@@ -89,15 +95,19 @@ class UpdateService {
     final dir = Directory('${(await getTemporaryDirectory()).path}/updates');
     await dir.create(recursive: true);
     final file = File('${dir.path}/letras-${release.version}.apk');
+    await _download(release, file, onProgress);
+    await _channel.invokeMethod('installApk', {'path': file.path});
+  }
 
+  Future<void> _download(AppRelease release, File file, void Function(double)? onProgress) async {
     final client = HttpClient();
     try {
-      final request = await client.getUrl(Uri.parse(release.apkUrl));
+      final request = await client.getUrl(Uri.parse(release.downloadUrl));
       final response = await request.close();
       if (response.statusCode != 200) {
         throw Exception('No se pudo bajar la actualización (${response.statusCode}).');
       }
-      final total = response.contentLength > 0 ? response.contentLength : (release.apkSize ?? 0);
+      final total = response.contentLength > 0 ? response.contentLength : (release.downloadSize ?? 0);
       final sink = file.openWrite();
       var received = 0;
       await for (final chunk in response) {
@@ -109,7 +119,48 @@ class UpdateService {
     } finally {
       client.close();
     }
-    await _channel.invokeMethod('installApk', {'path': file.path});
+  }
+
+  /// Baja el ZIP, lo descomprime y deja un script que espera a que la app
+  /// se cierre, cambia Letras.app por la nueva y la vuelve a abrir.
+  Future<void> _updateMac(AppRelease release, {void Function(double)? onProgress}) async {
+    // .../Letras.app/Contents/MacOS/Letras
+    final bundle = File(Platform.resolvedExecutable).parent.parent.parent;
+    if (!bundle.path.endsWith('.app')) {
+      throw Exception('No se encontró Letras.app para reemplazarla.');
+    }
+    final parent = bundle.parent;
+    final probe = File('${parent.path}/.letras-update-check');
+    try {
+      await probe.writeAsString('');
+      await probe.delete();
+    } on FileSystemException {
+      throw Exception('No hay permiso para escribir en ${parent.path}. '
+          'Mueve Letras a la carpeta Aplicaciones y vuelve a intentar.');
+    }
+
+    final dir = Directory('${(await getTemporaryDirectory()).path}/letras-update');
+    if (await dir.exists()) await dir.delete(recursive: true);
+    await dir.create(recursive: true);
+    final zip = File('${dir.path}/letras.zip');
+    await _download(release, zip, onProgress);
+
+    final unzip = await Process.run('/usr/bin/ditto', ['-x', '-k', zip.path, dir.path]);
+    if (unzip.exitCode != 0) throw Exception('No se pudo descomprimir la actualización.');
+    final newApp = Directory('${dir.path}/Letras.app');
+    if (!await newApp.exists()) throw Exception('La actualización no trae Letras.app.');
+
+    final script = File('${dir.path}/instalar.sh');
+    await script.writeAsString('''
+#!/bin/sh
+while kill -0 "\$1" 2>/dev/null; do sleep 0.2; done
+rm -rf "\$2" && /usr/bin/ditto "\$3" "\$2"
+/usr/bin/xattr -dr com.apple.quarantine "\$2" 2>/dev/null
+/usr/bin/open "\$2"
+''');
+    await Process.start('/bin/sh', [script.path, '$pid', bundle.path, newApp.path],
+        mode: ProcessStartMode.detached);
+    exit(0);
   }
 }
 

@@ -237,6 +237,35 @@ para apps de celular, que no lo necesita).
 5. Reproduce algo en Spotify o YouTube Music y abre la pestaña "Reproduciendo":
    la letra debería aparecer sola, animándose en sincronía con la canción.
 
+### En la Mac
+
+```
+flutter run -d macos --dart-define-from-file=config/dart_defines.json
+```
+
+- La detección está en `macos/Runner/NowPlayingBridge.swift`: les pregunta
+  por AppleScript a **Spotify** y a **Música** qué suena y en qué segundo va
+  (sin abrirlas si están cerradas). Responde los mismos canales que el
+  código de Android, así que el lado de Dart es el mismo. macOS pide
+  permiso la primera vez ("Letras quiere controlar Spotify"); se revisa en
+  Ajustes del Sistema > Privacidad y seguridad > Automatización.
+- "Letra fuera de la app" es la línea actual en la barra de menú
+  (`MenuBarLyrics.swift`).
+- El login de Spotify vuelve con el mismo `io.letras.app://spotify-callback`
+  que en Android (registrado en `Info.plist`): no hay que cambiar nada en el
+  panel de Spotify.
+- Sin sandbox (la app no va a la App Store) y con firma "ad hoc".
+- **Xcode 27 + Flutter 3.41**: `flutter build macos --release` falla con
+  *"does not contain architectures arm64 x86_64"* (el `lipo` nuevo no
+  acepta varias arquitecturas juntas). `flutter run` y las compilaciones
+  debug andan. Para una release local, después de ese error:
+  ```
+  cd macos && xcodebuild -workspace Runner.xcworkspace -scheme Runner \
+    -configuration Release ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+    SYMROOT="$PWD/../build/macos/Build/Products"
+  ```
+  En GitHub Actions no pasa (usa otro Xcode).
+
 ## Notas y límites
 
 - La detección automática solo funciona con apps que exponen su música al
@@ -272,12 +301,12 @@ para apps de celular, que no lo necesita).
    ```
    git tag v1.1.0 && git push origin v1.1.0
    ```
-   GitHub Actions corre los tests, arma el APK firmado y lo publica en
-   Releases. Pásale a tus amigos el link del APK la primera vez; después,
+   GitHub Actions corre los tests, arma el APK firmado y la app de Mac
+   (`letras-X.Y.Z-macos.zip`) y los publica en Releases. Pásale a tus amigos el link del APK la primera vez; después,
    en **Ajustes > Buscar actualizaciones**, la app se actualiza sola.
 
 En cada push, el workflow **CI** corre `flutter analyze`, los tests y
-compila el APK. Para correr los tests en tu computadora: `flutter test`.
+compila el APK y la app de Mac. Para correr los tests en tu computadora: `flutter test`.
 
 > Ojo: el primer APK firmado con tu llave no se puede instalar encima de
 > uno compilado en modo debug (son firmas distintas). Exporta las

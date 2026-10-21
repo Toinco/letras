@@ -6,6 +6,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 
+import '../utils/platform.dart';
+
 import '../models/song.dart';
 import 'app_http.dart';
 
@@ -35,11 +37,14 @@ class AudioRecognitionService {
   final AudioRecorder _recorder = AudioRecorder();
 
   Future<bool> hasMicrophonePermission() async {
+    // permission_handler no existe en la Mac: ahí pregunta `record`.
+    if (isMac) return _recorder.hasPermission(request: false);
     final status = await Permission.microphone.status;
     return status.isGranted;
   }
 
   Future<bool> requestMicrophonePermission() async {
+    if (isMac) return _recorder.hasPermission();
     final status = await Permission.microphone.request();
     return status.isGranted;
   }

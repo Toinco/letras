@@ -1,5 +1,6 @@
 # Integración continua: en cada push y pull request revisa el código,
-# corre los tests y compila el APK, para enterarse enseguida si algo se rompió.
+# corre los tests y compila el APK y la app de Mac, para enterarse
+# enseguida si algo se rompió.
 name: CI
 
 on:
@@ -35,3 +36,19 @@ jobs:
 
       - name: Compilar APK (debug)
         run: flutter build apk --debug
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Compilar app de Mac (debug)
+        run: flutter build macos --debug

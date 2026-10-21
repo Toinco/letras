@@ -5,12 +5,13 @@
 # Letras
 
 **La letra de lo que estás escuchando, sincronizada y palabra por palabra.**
-Estilo Apple Music, para Android, gratis y sin cuentas.
+Estilo Apple Music, para Android y Mac, gratis y sin cuentas.
 
 [![Descargar APK](https://img.shields.io/github/v/release/Toinco/letras?label=Descargar%20APK&style=for-the-badge&color=FC3C44)](https://github.com/Toinco/letras/releases/latest)
 
 [![CI](https://github.com/Toinco/letras/actions/workflows/ci.yml/badge.svg)](https://github.com/Toinco/letras/actions/workflows/ci.yml)
 ![Android 7+](https://img.shields.io/badge/Android-7%2B-3DDC84?logo=android&logoColor=white)
+![macOS 12+](https://img.shields.io/badge/macOS-12%2B-000000?logo=apple&logoColor=white)
 ![Flutter](https://img.shields.io/badge/Flutter-3.41-02569B?logo=flutter&logoColor=white)
 
 </div>
@@ -65,10 +66,24 @@ de lo que suena.
 
 ## Instalar
 
+### Android
+
 1. Baja el APK de la [última versión](https://github.com/Toinco/letras/releases/latest).
 2. Ábrelo en el celular y permite instalar apps de esa fuente.
 3. La primera vez, concede **acceso a notificaciones** (así la app puede ver
    qué música suena; no lee tus mensajes).
+
+### Mac
+
+1. Baja `letras-X.Y.Z-macos.zip` de la [última versión](https://github.com/Toinco/letras/releases/latest),
+   descomprímelo y arrastra **Letras** a Aplicaciones.
+2. La primera vez macOS no la deja abrir porque no está firmada por Apple:
+   ve a **Ajustes del Sistema → Privacidad y seguridad** y toca
+   **Abrir igualmente** (una sola vez).
+3. Pon algo en **Spotify** o en **Música**. macOS pregunta si Letras puede
+   controlarlos: acepta, así la app ve qué suena y en qué segundo va.
+
+En la Mac, la letra fuera de la app va en la **barra de menú**, junto al reloj.
 
 Las versiones nuevas se instalan desde la misma app:
 **Ajustes → Buscar actualizaciones**.
@@ -81,12 +96,13 @@ Las versiones nuevas se instalan desde la misma app:
 | NetEase Cloud Music | Respaldo, con mucho catálogo asiático y tiempos por palabra |
 | Genius | Último recurso, letra sin sincronizar |
 
-La detección de lo que suena usa la sesión multimedia de Android: no graba
-audio ni manda nada a ningún servidor propio. La app no tiene backend.
+La detección de lo que suena usa la sesión multimedia de Android (en la Mac,
+le pregunta a Spotify y a Música): no graba audio ni manda nada a ningún
+servidor propio. La app no tiene backend.
 
 ## Para desarrolladores
 
-Flutter + Kotlin, estado con Riverpod, base local en SQLite, tests con
+Flutter + Kotlin (Swift en la Mac), estado con Riverpod, base local en SQLite, tests con
 respuestas HTTP simuladas y CI en GitHub Actions. Cómo compilarla,
 probarla y publicar versiones: **[docs/DESARROLLO.md](docs/DESARROLLO.md)**.
 
