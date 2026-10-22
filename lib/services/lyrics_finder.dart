@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import '../models/lyrics_result.dart';
 import '../models/song.dart';
@@ -111,6 +112,15 @@ class LyricsFinder {
       lrclib = await lrclibFuture;
     }
     if (lrclib != null && (lrclib.hasSyncedLyrics || lrclib.instrumental)) {
+      if (extra && lrclib.hasSyncedLyrics && !lrclib.hasWordSync) {
+        // LRCLIB casi nunca trae tiempos por palabra; NetEase muchas veces
+        // sí (sobre todo en inglés). Con ellos el karaoke sigue al cantante
+        // de verdad, con sus pausas, en vez de estimarse.
+        final ne = await netease().timeout(wordSyncPatience, onTimeout: () => null);
+        if (ne != null && sameTiming(lrclib, ne)) {
+          return (result: ne.copyWith(song: lrclib.song), transient: false);
+        }
+      }
       return (result: lrclib, transient: false);
     }
 
@@ -133,6 +143,38 @@ class LyricsFinder {
     final error = networkError;
     if (error != null) throw error;
     return (result: null, transient: false);
+  }
+
+  /// Cuánto se espera a NetEase para conseguir tiempos por palabra cuando
+  /// LRCLIB ya dio la letra por línea.
+  static Duration wordSyncPatience = const Duration(milliseconds: 2500);
+
+  /// ¿[wordSynced] es la misma versión de la canción que [lineSynced]?
+  /// Tiene que traer tiempos por palabra y las líneas tienen que arrancar
+  /// más o menos en los mismos momentos (si no, es otra versión o está
+  /// corrida, y mejor quedarse con la de LRCLIB).
+  static bool sameTiming(LyricsResult lineSynced, LyricsResult wordSynced) {
+    if (!wordSynced.hasWordSync) return false;
+    List<Duration> starts(LyricsResult r) => [
+          for (final l in r.syncedLyrics)
+            if (l.text.trim().isNotEmpty) l.timestamp,
+        ];
+    final a = starts(lineSynced);
+    final b = starts(wordSynced);
+    if (a.length < 3 || b.length < 3) return false;
+    if ((a.length - b.length).abs() > math.max(4, a.length * 0.25)) return false;
+    // Para cada línea de LRCLIB, ¿hay una de NetEase que arranque cerca?
+    var close = 0;
+    var j = 0;
+    for (final t in a) {
+      while (j + 1 < b.length && b[j + 1] <= t) {
+        j++;
+      }
+      final near = [b[j], if (j + 1 < b.length) b[j + 1]]
+          .any((u) => (u - t).abs() <= const Duration(milliseconds: 1500));
+      if (near) close++;
+    }
+    return close >= a.length * 0.7;
   }
 
   /// Olvida lo resuelto para esta canción (al elegir otra letra a mano).

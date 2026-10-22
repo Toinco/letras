@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../services/now_playing_service.dart';
 import '../services/settings_service.dart';
 import '../services/update_service.dart';
+import '../widgets/update_prompt.dart';
 import '../theme/app_theme.dart';
 import 'error_log_screen.dart';
 import 'favorites_screen.dart';
@@ -155,42 +156,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     setState(() => _checkingUpdate = true);
     try {
       final release = await UpdateService().checkForUpdate();
+      UpdatePrompt.available.value = release;
       if (!mounted) return;
       if (release == null) {
         _snack('Ya tienes la última versión.');
         return;
       }
-      final install = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('Versión ${release.version} disponible'),
-          content: SingleChildScrollView(
-            child: Text(release.notes.isEmpty ? 'Hay una versión nueva.' : release.notes),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Más tarde')),
-            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Actualizar')),
-          ],
-        ),
-      );
-      if (install != true || !mounted) return;
-      final progress = ValueNotifier<double?>(null);
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => AlertDialog(
-          title: const Text('Descargando...'),
-          content: ValueListenableBuilder<double?>(
-            valueListenable: progress,
-            builder: (_, v, __) => LinearProgressIndicator(value: v),
-          ),
-        ),
-      );
-      try {
-        await UpdateService().downloadAndInstall(release, onProgress: (p) => progress.value = p);
-      } finally {
-        if (mounted) Navigator.of(context).pop();
-      }
+      if (await UpdatePrompt.confirm(context, release) != true || !mounted) return;
+      await UpdatePrompt.install(context, release);
     } catch (e) {
       _snack(e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -618,9 +591,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                     ? const SizedBox(
                         width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.system_update_rounded),
-                title: const Text('Buscar actualizaciones'),
+                title: ValueListenableBuilder<AppRelease?>(
+                  valueListenable: UpdatePrompt.available,
+                  builder: (context, release, _) => Text(release == null
+                      ? 'Buscar actualizaciones'
+                      : 'Actualizar a la versión ${release.version}'),
+                ),
                 subtitle: Text('Versión $_version',
                     style: const TextStyle(color: AppTheme.textSecondary)),
+                trailing: ValueListenableBuilder<AppRelease?>(
+                  valueListenable: UpdatePrompt.available,
+                  builder: (context, release, _) => release == null
+                      ? const SizedBox.shrink()
+                      : Icon(Icons.circle, size: 10, color: Theme.of(context).colorScheme.primary),
+                ),
                 onTap: _checkingUpdate ? null : _checkForUpdates,
               )
             else if (_version.isNotEmpty)

@@ -36,6 +36,20 @@ computadora con VS Code, sin necesidad de saber programar en Dart.
 - **Descargas**: las letras guardadas quedan en archivos locales del
   teléfono (con su traducción, si se pidió), para verlas sin internet.
 
+## Novedades (1.3.0)
+
+- **Karaoke como Apple Music**: cada palabra se ilumina con un borde suave
+  mientras se canta, sube un poquito al cantarse y las notas largas brillan.
+- **Pausas**: si el cantante para unos segundos entre frases, aparecen los
+  tres puntitos que se llenan hasta la frase siguiente.
+- **Más letras con tiempos por palabra**: si LRCLIB solo trae la letra por
+  línea, se buscan los tiempos por palabra en NetEase (si es la misma
+  versión). Si no hay, la estimación reparte por sílabas y respira en las
+  comas.
+- **Actualizar con un botón**: al abrir la app avisa si hay una versión
+  nueva y la instala sola (Android, Mac y Windows). También en Ajustes >
+  Buscar actualizaciones, ahora incluso en compilaciones locales.
+
 ## Novedades (fines de octubre 2026)
 
 **Letra**

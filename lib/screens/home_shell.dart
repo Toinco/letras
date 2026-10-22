@@ -6,6 +6,7 @@ import '../providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/platform.dart';
 import '../widgets/desktop.dart';
+import '../widgets/update_prompt.dart';
 import '../services/favorites_sync_service.dart';
 import '../services/spotify_playlist_sync.dart';
 import 'downloads_screen.dart';
@@ -55,6 +56,10 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     FavoritesSyncService().syncIfEnabled();
     // Y las playlists de Spotify marcadas como "automático".
     SpotifyPlaylistSync().syncAuto();
+    // Si hay una versión nueva, la ofrece con un botón para instalarla.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) UpdatePrompt.checkOnStartup(context);
+    });
   }
 
   // Y también cada vez que vuelves a la app (por ejemplo, después de darle

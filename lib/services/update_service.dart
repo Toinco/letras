@@ -32,11 +32,11 @@ class AppRelease {
 /// encima de los de la carpeta de Letras (los que están en uso se renombran
 /// a `.old` y se borran al volver a abrir).
 ///
-/// El repositorio se fija al compilar (`--dart-define=UPDATE_REPO=usuario/repo`):
-/// el workflow de GitHub Actions lo pasa solo. En una compilación local,
-/// sin ese dato, la búsqueda de actualizaciones no aparece.
+/// El repositorio se puede cambiar al compilar
+/// (`--dart-define=UPDATE_REPO=usuario/repo`); si no se pasa, se usa el
+/// oficial, así también las compilaciones locales pueden actualizarse.
 class UpdateService {
-  static const repo = String.fromEnvironment('UPDATE_REPO');
+  static const repo = String.fromEnvironment('UPDATE_REPO', defaultValue: 'Toinco/letras');
   static const _channel = MethodChannel('io.letras.app/now_playing');
 
   static bool get isConfigured => repo.contains('/');

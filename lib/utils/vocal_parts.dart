@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../models/lyric_line.dart';
 
 /// Un tramo de texto que se "llena" entre [start] y [end]: los caracteres
@@ -133,20 +135,44 @@ VocalPart? _build(List<_TimedText> parts) {
   ]);
 }
 
-/// Inventa tiempos por palabra para una línea que no los trae: cada
-/// palabra arranca proporcionalmente a su posición en el texto.
+/// Inventa tiempos por palabra para una línea que no los trae. Cada
+/// palabra dura según sus sílabas (una palabra larga se canta más lento
+/// que "y" o "la"), y después de una coma o un punto hay una pausita, como
+/// cuando el cantante respira.
 List<LyricWord> _estimateWords(LyricLine line, Duration end) {
   final text = line.text;
   if (text.trim().isEmpty) return const [];
   final total = (end - line.timestamp).inMicroseconds;
   final matches = RegExp(r'\S+\s*').allMatches(text).toList();
-  final length = text.length;
-  return [
-    for (final m in matches)
-      LyricWord(
-        start: line.timestamp + Duration(microseconds: total * m.start ~/ length),
-        end: line.timestamp + Duration(microseconds: total * m.end ~/ length),
-        text: m.group(0)!,
-      ),
+  final weights = [for (final m in matches) _wordWeight(m.group(0)!)];
+  final pauses = [
+    for (var i = 0; i < matches.length; i++)
+      i + 1 < matches.length && RegExp(r'[,;:.!?…]\s*$').hasMatch(matches[i].group(0)!) ? 0.6 : 0.0,
   ];
+  final sum = weights.fold<double>(0, (a, b) => a + b) + pauses.fold<double>(0, (a, b) => a + b);
+  var t = 0.0;
+  final words = <LyricWord>[];
+  for (var i = 0; i < matches.length; i++) {
+    final start = t;
+    t += weights[i];
+    words.add(LyricWord(
+      start: line.timestamp + Duration(microseconds: (total * start / sum).round()),
+      end: line.timestamp + Duration(microseconds: (total * t / sum).round()),
+      text: matches[i].group(0)!,
+    ));
+    t += pauses[i];
+  }
+  return words;
+}
+
+final _vowelGroups = RegExp(r'[aeiouyáéíóúàèìòùâêîôûäëïöüãõåæøœ]+', caseSensitive: false);
+
+/// Cuánto "pesa" cantar una palabra: sus sílabas (grupos de vocales); sin
+/// vocales latinas (japonés, coreano...), un poco por cada letra.
+double _wordWeight(String word) {
+  final w = word.trim();
+  final syllables = _vowelGroups.allMatches(w).length;
+  if (syllables > 0) return 0.6 + syllables;
+  final letters = w.replaceAll(RegExp(r'[^\p{L}\p{N}]', unicode: true), '').runes.length;
+  return 0.6 + math.max(1, letters) * 0.8;
 }

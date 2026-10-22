@@ -159,6 +159,13 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
   final ValueNotifier<double> _lineProgress = ValueNotifier(0);
   final ValueNotifier<double> _introProgress = ValueNotifier(0);
 
+  /// Pausa larga después de la línea actual (el cantante ya terminó y la
+  /// siguiente tarda): se muestran los tres puntitos, como en Apple Music.
+  bool _inGap = false;
+  final ValueNotifier<double> _gapProgress = ValueNotifier(0);
+  int _gapIndex = -2;
+  ({Duration start, Duration end})? _gap;
+
   /// Posición actual (con desfase), actualizada en cada cuadro. Solo la
   /// escucha el pintor de la línea actual, así no se reconstruye nada más.
   final ValueNotifier<Duration> _now = ValueNotifier(Duration.zero);
@@ -228,7 +235,10 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
   @override
   void didUpdateWidget(covariant SyncedLyricsView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.lines != widget.lines) _presentations = [];
+    if (oldWidget.lines != widget.lines) {
+      _presentations = [];
+      _gapIndex = -2;
+    }
     if (oldWidget.position != widget.position || oldWidget.lines != widget.lines) {
       _sub?.cancel();
       _currentIndex = -1;
@@ -288,7 +298,10 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     final pos = rawPos + widget.offset;
     final newIndex = widget.lines.lastIndexWhere((l) => l.timestamp <= pos);
     if (newIndex != _currentIndex) {
-      setState(() => _currentIndex = newIndex);
+      setState(() {
+        _currentIndex = newIndex;
+        _inGap = false;
+      });
       if (_autoFollow) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
       }
@@ -309,10 +322,49 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     return gap < estimate ? gap : estimate;
   }
 
+  /// Si después de la línea [index] hay una pausa larga, desde cuándo
+  /// hasta cuándo mostrar los puntitos. Con tiempos reales (fin de línea o
+  /// por palabra) alcanza con una pausa corta; con tiempos estimados hace
+  /// falta una bien larga, para no tapar una nota sostenida.
+  ({Duration start, Duration end})? _gapAfter(int index) {
+    if (index < 0 || index + 1 >= widget.lines.length) return null;
+    final line = widget.lines[index];
+    final next = widget.lines[index + 1];
+    if (_isInterlude(line.text) || _isInterlude(next.text)) return null;
+    final pres = _presentationFor(index);
+    final sungUntil = [pres.main?.end, pres.background?.end]
+        .whereType<Duration>()
+        .fold(line.timestamp, (a, b) => b > a ? b : a);
+    final exact = line.end != null || line.hasWordSync;
+    final pause = next.timestamp - sungUntil;
+    if (pause < (exact ? const Duration(milliseconds: 3500) : const Duration(seconds: 7))) {
+      return null;
+    }
+    final start = sungUntil + (exact ? const Duration(milliseconds: 500) : const Duration(seconds: 2));
+    return (start: start, end: next.timestamp);
+  }
+
+  void _updateGap(Duration now) {
+    if (_gapIndex != _currentIndex) {
+      _gapIndex = _currentIndex;
+      _gap = _gapAfter(_currentIndex);
+    }
+    final gap = _gap;
+    final inGap = gap != null && now >= gap.start && now < gap.end;
+    if (inGap) {
+      final total = (gap.end - gap.start).inMilliseconds;
+      final p = ((now - gap.start).inMilliseconds / total).clamp(0.0, 1.0);
+      if ((p - _gapProgress.value).abs() > 0.002) _gapProgress.value = p;
+    }
+    if (inGap != _inGap) setState(() => _inGap = inGap);
+  }
+
   void _onTick(Duration _) {
     if (widget.lines.isEmpty) return;
     final now = _effectiveNow;
     _now.value = now;
+    _ensureItemKeys();
+    _updateGap(now);
     if (_currentIndex >= 0 && _currentIndex < widget.lines.length) {
       final start = widget.lines[_currentIndex].timestamp;
       final total = _fillDurationFor(_currentIndex).inMilliseconds;
@@ -441,6 +493,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     _searchController.dispose();
     _lineProgress.dispose();
     _introProgress.dispose();
+    _gapProgress.dispose();
     _now.dispose();
     super.dispose();
   }
@@ -617,7 +670,9 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
 
   Widget _buildLine(int index, double fontSize, {required bool blur}) {
     final line = widget.lines[index];
-    final isCurrent = index == _currentIndex;
+    // En una pausa larga la línea que terminó se apaga y se ven los puntitos.
+    final pausedAfter = index == _currentIndex && _inGap;
+    final isCurrent = index == _currentIndex && !_inGap;
     final distance = (index - _currentIndex).abs();
     final isMatch = _matches.contains(index);
     final isActiveMatch =
@@ -667,8 +722,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     );
 
     final hovered = _hoveredLine == index && widget.onSeek != null;
-    return MouseRegion(
-      key: _itemKeys[index],
+    final lineWidget = MouseRegion(
       cursor: widget.onSeek != null ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: (_) => setState(() => _hoveredLine = index),
       onExit: (_) {
@@ -708,6 +762,21 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
           ),
         ),
       ),
+    );
+    return Column(
+      key: _itemKeys[index],
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        lineWidget,
+        AnimatedSize(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topLeft,
+          child: pausedAfter
+              ? _InterludeDots(active: true, progress: _gapProgress, size: fontSize)
+              : const SizedBox(width: double.infinity),
+        ),
+      ],
     );
   }
 
@@ -798,11 +867,11 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
           : '';
 
       Widget current;
-      if (index < 0 || _isInterlude(widget.lines[index].text)) {
+      if (index < 0 || _inGap || _isInterlude(widget.lines[index].text)) {
         current = _InterludeDots(
-          key: ValueKey('dots$index'),
+          key: ValueKey('dots$index$_inGap'),
           active: true,
-          progress: index < 0 ? _introProgress : _lineProgress,
+          progress: index < 0 ? _introProgress : (_inGap ? _gapProgress : _lineProgress),
           size: math.min(height * 0.12, 90),
           center: true,
         );
@@ -997,10 +1066,12 @@ class _Blur extends StatelessWidget {
   }
 }
 
-/// Texto con relleno tipo karaoke: se pinta tenue y, encima, la parte ya
-/// "cantada" en blanco. Sigue los tiempos de cada palabra (exactos si la
-/// letra los trae, estimados si no) y respeta los saltos de renglón.
-/// Solo se repinta (no se reconstruye) cuando avanza [now].
+/// Texto con relleno tipo karaoke, como Apple Music: cada palabra se va
+/// iluminando de izquierda a derecha con un borde suave mientras se canta,
+/// sube un poquito al cantarse y, si es una nota larga, brilla y se agranda
+/// apenas. Sigue los tiempos de cada palabra (exactos si la letra los trae,
+/// estimados si no) y respeta los saltos de renglón. Solo se repinta (no se
+/// reconstruye) cuando avanza [now].
 class _KaraokeText extends StatelessWidget {
   final VocalPart part;
   final TextStyle style;
@@ -1019,7 +1090,8 @@ class _KaraokeText extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       final painter = _KaraokePainter(
         part: part,
-        style: style,
+        // La misma fuente que un Text común (la del tema).
+        style: DefaultTextStyle.of(context).style.merge(style),
         maxWidth: constraints.maxWidth,
         now: now,
         textAlign: textAlign,
@@ -1033,19 +1105,46 @@ class _KaraokeText extends StatelessWidget {
   }
 }
 
+/// Una palabra ya ubicada en pantalla: sus cajas (una por renglón, casi
+/// siempre una sola) y cuándo se canta.
+class _PlacedWord {
+  final List<Rect> boxes;
+  final double width;
+  final Duration start;
+  final Duration end;
+  final String text;
+  final Offset origin;
+
+  _PlacedWord(this.boxes, this.start, this.end, this.text)
+      : width = boxes.fold(0.0, (w, b) => w + b.width),
+        origin = boxes.first.topLeft;
+
+  bool get isLong => end - start >= const Duration(milliseconds: 1000);
+
+  double progress(Duration now) {
+    if (now <= start) return 0;
+    if (now >= end) return 1;
+    return (now - start).inMicroseconds / (end - start).inMicroseconds;
+  }
+}
+
 class _KaraokePainter extends CustomPainter {
   final VocalPart part;
   final ValueListenable<Duration> now;
+  final TextStyle style;
+  final TextScaler textScaler;
   late final TextPainter _bright;
   late final TextPainter _dim;
+  late final List<_PlacedWord> _words;
+  final Map<int, TextPainter> _glows = {};
 
   _KaraokePainter({
     required this.part,
-    required TextStyle style,
+    required this.style,
     required double maxWidth,
     required this.now,
     required TextAlign textAlign,
-    required TextScaler textScaler,
+    required this.textScaler,
   }) : super(repaint: now) {
     TextPainter make(TextStyle s) => TextPainter(
           text: TextSpan(text: part.text, style: s),
@@ -1054,42 +1153,152 @@ class _KaraokePainter extends CustomPainter {
           textScaler: textScaler,
         )..layout(minWidth: maxWidth, maxWidth: maxWidth);
     _bright = make(style);
-    _dim = make(style.copyWith(color: (style.color ?? Colors.white).withValues(alpha: 0.38)));
+    _dim = make(style.copyWith(color: (style.color ?? Colors.white).withValues(alpha: 0.36)));
+    _words = [];
+    for (final seg in part.segments) {
+      // Sin los espacios del final: el relleno termina con la última letra.
+      var to = seg.to;
+      while (to > seg.from && part.text[to - 1].trim().isEmpty) {
+        to--;
+      }
+      if (to <= seg.from) continue;
+      final boxes = _bright
+          .getBoxesForSelection(TextSelection(baseOffset: seg.from, extentOffset: to))
+          .map((b) => b.toRect())
+          .where((r) => r.width > 0)
+          .toList();
+      if (boxes.isEmpty) continue;
+      _words.add(_PlacedWord(boxes, seg.start, seg.end, part.text.substring(seg.from, to)));
+    }
   }
+
+  double get _fontSize => textScaler.scale(style.fontSize ?? 27);
+
+  /// Cuánto sube una palabra ya cantada.
+  double get _maxLift => _fontSize * 0.06;
 
   double get height => _bright.height;
 
+  /// Recorte de una caja corrida [lift] hacia arriba. El primer renglón
+  /// tiene margen arriba para los acentos de las mayúsculas.
+  Rect _clip(Rect box, double lift) =>
+      Rect.fromLTRB(box.left, box.top - lift - (box.top < 1 ? _fontSize * 0.3 : 0), box.right,
+          box.bottom - lift);
+
   @override
   void paint(Canvas canvas, Size size) {
-    _dim.paint(canvas, Offset.zero);
-    final filled = part.filledChars(now.value);
-    if (filled <= 0) return;
-    final length = part.text.length;
-    if (filled >= length) {
-      _bright.paint(canvas, Offset.zero);
+    if (_words.isEmpty) {
+      _dim.paint(canvas, Offset.zero);
       return;
     }
-    final whole = filled.floor();
-    final path = Path();
-    if (whole > 0) {
-      for (final b
-          in _bright.getBoxesForSelection(TextSelection(baseOffset: 0, extentOffset: whole))) {
-        path.addRect(Rect.fromLTRB(b.left - 1, b.top - 3, b.right + 0.5, b.bottom + 3));
+    final t = now.value;
+    final done = Path();
+    final pending = Path();
+    final active = <(_PlacedWord, double)>[];
+    for (final w in _words) {
+      final p = w.progress(t);
+      if (p >= 1) {
+        for (final b in w.boxes) {
+          done.addRect(_clip(b, _maxLift));
+        }
+      } else if (p <= 0) {
+        for (final b in w.boxes) {
+          pending.addRect(_clip(b, 0));
+        }
+      } else {
+        active.add((w, p));
       }
     }
-    // El caracter que se está cantando, llenado a medias.
-    final partial = _bright.getBoxesForSelection(
-      TextSelection(baseOffset: whole, extentOffset: whole + 1),
-    );
-    if (partial.isNotEmpty) {
-      final b = partial.first;
-      final frac = filled - whole;
-      path.addRect(
-          Rect.fromLTRB(b.left, b.top - 3, b.left + (b.right - b.left) * frac, b.bottom + 3));
-    }
+
+    // Lo que falta cantar: tenue y en su lugar.
     canvas.save();
-    canvas.clipPath(path);
-    _bright.paint(canvas, Offset.zero);
+    canvas.clipPath(pending);
+    _dim.paint(canvas, Offset.zero);
+    canvas.restore();
+
+    // Lo ya cantado: iluminado y un poquito más arriba.
+    canvas.save();
+    canvas.clipPath(done);
+    _bright.paint(canvas, Offset(0, -_maxLift));
+    canvas.restore();
+
+    for (final (w, p) in active) {
+      _paintActive(canvas, w, p);
+    }
+  }
+
+  /// La palabra que se está cantando: se ilumina con un borde difuminado
+  /// que avanza, va subiendo y, si es larga, brilla.
+  void _paintActive(Canvas canvas, _PlacedWord w, double p) {
+    final eased = Curves.easeOutCubic.transform(p);
+    final lift = _maxLift * eased;
+    final glow = w.isLong ? math.sin(p * math.pi) : 0.0;
+    final feather = _fontSize * 0.5;
+    // Del borde izquierdo (todo tenue) al derecho (todo iluminado), contando
+    // los renglones si la palabra quedó partida.
+    final edge = -feather / 2 + (w.width + feather) * p;
+    var before = 0.0;
+
+    canvas.save();
+    if (glow > 0) {
+      // Las notas largas se agrandan apenas, desde el centro de la palabra.
+      final c = w.boxes.first.center;
+      canvas.translate(c.dx, c.dy);
+      canvas.scale(1 + 0.035 * glow);
+      canvas.translate(-c.dx, -c.dy);
+      _paintGlow(canvas, w, glow, lift);
+    }
+    for (final b in w.boxes) {
+      final clip = _clip(b, lift);
+      canvas.save();
+      canvas.clipRect(clip);
+      _dim.paint(canvas, Offset(0, -lift));
+      final local = edge - before;
+      if (local > -feather / 2) {
+        canvas.saveLayer(clip, Paint());
+        _bright.paint(canvas, Offset(0, -lift));
+        final x = b.left + local;
+        canvas.drawRect(
+          clip,
+          Paint()
+            ..blendMode = BlendMode.dstIn
+            ..shader = ui.Gradient.linear(
+              Offset(x - feather / 2, 0),
+              Offset(x + feather / 2, 0),
+              const [Colors.white, Color(0x00FFFFFF)],
+            ),
+        );
+        canvas.restore();
+      }
+      canvas.restore();
+      before += b.width;
+    }
+    canvas.restore();
+  }
+
+  /// Un halo suave detrás de la palabra (solo la palabra, para que no se
+  /// prendan las vecinas).
+  void _paintGlow(Canvas canvas, _PlacedWord w, double intensity, double lift) {
+    if (w.boxes.length != 1) return;
+    final index = _words.indexOf(w);
+    final glowPainter = _glows[index] ??= TextPainter(
+      text: TextSpan(
+        text: w.text,
+        style: style.copyWith(
+          color: Colors.white.withValues(alpha: 0.0),
+          shadows: [
+            Shadow(color: Colors.white.withValues(alpha: 0.9), blurRadius: _fontSize * 0.35),
+          ],
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textScaler: textScaler,
+    )..layout();
+    canvas.saveLayer(
+      w.boxes.first.inflate(_fontSize),
+      Paint()..color = Colors.white.withValues(alpha: 0.55 * intensity),
+    );
+    glowPainter.paint(canvas, w.origin.translate(0, -lift));
     canvas.restore();
   }
 

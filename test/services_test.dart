@@ -225,6 +225,57 @@ void main() {
       expect(r.hasWordSync, isTrue);
     });
 
+    group('tiempos por palabra de NetEase cuando LRCLIB solo trae líneas', () {
+      const lrc = '[00:01.00]Uno\n[00:03.00]Dos\n[00:05.00]Tres\n[00:07.00]Cuatro';
+      MockClient client(String yrc) => MockClient((req) async {
+            switch (req.url.host) {
+              case 'lrclib.net':
+                if (req.url.path == '/api/get') {
+                  return _json(_lrclibTrack(title: 'Cuenta', synced: lrc));
+                }
+                return _json([_lrclibTrack(title: 'Cuenta', synced: lrc)]);
+              case 'music.163.com':
+                if (req.url.path == '/api/search/get') {
+                  return _json({
+                    'result': {
+                      'songs': [
+                        {
+                          'id': 7,
+                          'name': 'Cuenta',
+                          'artists': [
+                            {'name': 'The Weeknd'},
+                          ],
+                          'duration': 200000,
+                        },
+                      ],
+                    },
+                  });
+                }
+                return _json({
+                  'yrc': {'lyric': yrc},
+                });
+            }
+            return http.Response('', 404);
+          });
+
+      test('usa NetEase si es la misma versión', () async {
+        AppHttp.client = client('[1100,900](1100,400,0)U(1500,500,0)no\n'
+            '[3000,900](3000,900,0)Dos\n[5050,900](5050,900,0)Tres\n'
+            '[7000,900](7000,900,0)Cuatro');
+        final r = await LyricsFinder().find('Cuenta', 'The Weeknd', durationSeconds: 200);
+        expect(r!.source, LyricsSource.netease);
+        expect(r.hasWordSync, isTrue);
+        expect(r.song.album, 'After Hours'); // los datos de la canción, de LRCLIB
+      });
+
+      test('se queda con LRCLIB si NetEase está corrida', () async {
+        AppHttp.client = client('[9000,900](9000,900,0)Uno\n[12000,900](12000,900,0)Dos\n'
+            '[15000,900](15000,900,0)Tres\n[18000,900](18000,900,0)Cuatro');
+        final r = await LyricsFinder().find('Cuenta', 'The Weeknd', durationSeconds: 200);
+        expect(r!.source, LyricsSource.lrclib);
+      });
+    });
+
     test('NetEase descarta otra versión con distinta duración', () async {
       AppHttp.client = MockClient((req) async => _json({
             'result': {
