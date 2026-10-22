@@ -18,6 +18,7 @@
 #include <cstdlib>
 #include <deque>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -91,6 +92,23 @@ struct State {
   }
 };
 
+// Lo último que se leyó de la línea de tiempo de una app, para saber si
+// trae un dato nuevo o es el mismo de antes.
+struct Anchor {
+  std::string song;
+  int64_t raw_position = 0;
+  int64_t raw_updated = 0;  // LastUpdatedTime, en unidades de 100 ns
+  bool playing = false;
+  int64_t position_ms = 0;
+  std::chrono::steady_clock::time_point read_at;
+
+  int64_t PositionNow() const {
+    if (!playing) return position_ms;
+    auto elapsed = duration_cast<milliseconds>(std::chrono::steady_clock::now() - read_at);
+    return position_ms + elapsed.count();
+  }
+};
+
 std::vector<uint8_t> ReadAll(const streams::IRandomAccessStream& stream) {
   auto size = stream.Size();
   if (size == 0 || size > 20 * 1024 * 1024) return {};
@@ -138,6 +156,14 @@ std::vector<uint8_t> Shrink(std::vector<uint8_t> bytes) {
   }
 }
 
+// Hora (ms desde 1970) en que se leyó la posición, para que la letra no
+// arranque atrasada por lo que tarda el mensaje en llegar a Dart.
+int64_t CapturedAtMs(std::chrono::steady_clock::time_point read_at) {
+  auto age = std::chrono::steady_clock::now() - read_at;
+  auto at = std::chrono::system_clock::now() - age;
+  return duration_cast<milliseconds>(at.time_since_epoch()).count();
+}
+
 std::vector<uint8_t> ReadThumbnail(const Properties& properties) {
   auto reference = properties.Thumbnail();
   if (!reference) return {};
@@ -172,6 +198,7 @@ struct NowPlayingBridge::Impl {
   std::vector<uint8_t> artwork;
   std::vector<uint8_t> previous_artwork;
   int artwork_tries = 0;
+  std::map<std::string, Anchor> anchors;  // por app
 
   std::thread thread;
 
@@ -316,18 +343,60 @@ struct NowPlayingBridge::Impl {
 
       auto timeline = session.GetTimelineProperties();
       s.duration_ms = duration_cast<milliseconds>(timeline.EndTime() - timeline.StartTime()).count();
-      int64_t position =
+      s.read_at = std::chrono::steady_clock::now();
+      int64_t raw_position =
           duration_cast<milliseconds>(timeline.Position() - timeline.StartTime()).count();
-      // La posición es la de la última vez que la app la informó: se le
-      // suma lo que pasó desde entonces.
-      if (s.playing) {
-        auto since =
-            duration_cast<milliseconds>(winrt::clock::now() - timeline.LastUpdatedTime()).count();
-        if (since > 0 && since < 24LL * 60 * 60 * 1000) position += since;
+      int64_t raw_updated = timeline.LastUpdatedTime().time_since_epoch().count();
+      int64_t since =
+          duration_cast<milliseconds>(winrt::clock::now() - timeline.LastUpdatedTime()).count();
+      bool since_ok = since >= 0 && since < 24LL * 60 * 60 * 1000;
+      std::string song = s.title + "|" + s.artist;
+
+      // La posición es la de la última vez que la app la informó, y
+      // Spotify la informa poco (al cambiar de tema, pausar o saltar). Si
+      // se le suma siempre lo que pasó desde LastUpdatedTime, la letra se
+      // corre: al reanudar después de una pausa Spotify no siempre
+      // actualiza esa hora y la pausa entera se contaba como reproducida.
+      // Por eso solo se usa un dato cuando es nuevo; si es el mismo de la
+      // vuelta anterior, sigue nuestro propio reloj.
+      auto found = anchors.find(s.app_id);
+      const Anchor* prev = found == anchors.end() ? nullptr : &found->second;
+      bool same_data = prev && prev->raw_position == raw_position &&
+                       prev->raw_updated == raw_updated;
+      int64_t position;
+      if (!s.playing) {
+        // Si al pausar la app no informó la posición, vale la que veníamos
+        // contando nosotros.
+        position = prev && same_data && prev->playing && prev->song == song
+                       ? prev->PositionNow()
+                       : raw_position;
+      } else if (!prev) {
+        // Primera vez que se ve esta app: no hay otra que confiar en la hora.
+        position = raw_position + (since_ok ? since : 0);
+      } else if (prev->song != song) {
+        // Tema nuevo. Si la línea de tiempo todavía es la del anterior,
+        // el tema acaba de empezar (lo vimos cambiar en esta vuelta).
+        position = same_data ? 0 : raw_position + (since_ok && since < 5000 ? since : 0);
+      } else if (!same_data) {
+        // Dato nuevo (seek, play, pausa...): pasó hace a lo sumo una vuelta.
+        position = raw_position + (since_ok && since < 5000 ? since : 0);
+      } else if (prev->playing) {
+        position = prev->PositionNow();
+      } else {
+        // Se reanudó sin que la app actualice la línea de tiempo: sigue
+        // desde donde quedó pausada.
+        position = prev->position_ms;
       }
       if (s.duration_ms > 0) position = std::min(position, s.duration_ms);
       s.position_ms = std::max<int64_t>(0, position);
-      s.read_at = std::chrono::steady_clock::now();
+
+      Anchor& anchor = anchors[s.app_id];
+      anchor.song = song;
+      anchor.raw_position = raw_position;
+      anchor.raw_updated = raw_updated;
+      anchor.playing = s.playing;
+      anchor.position_ms = s.position_ms;
+      anchor.read_at = s.read_at;
       return s;
     } catch (...) {
       return std::nullopt;
@@ -405,7 +474,7 @@ struct NowPlayingBridge::Impl {
 
     if (!force && !artwork_arrived && last_emitted && last_emitted->Key() == s.Key() &&
         last_emitted->playing == s.playing &&
-        std::abs(last_emitted->PositionNow() - s.position_ms) < 1500) {
+        std::abs(last_emitted->PositionNow() - s.position_ms) < 300) {
       return;
     }
     Emit(s, states);
@@ -428,6 +497,7 @@ struct NowPlayingBridge::Impl {
         {EncodableValue("album"), EncodableValue(s.album)},
         {EncodableValue("durationMs"), EncodableValue(s.duration_ms)},
         {EncodableValue("positionMs"), EncodableValue(s.position_ms)},
+        {EncodableValue("capturedAtMs"), EncodableValue(CapturedAtMs(s.read_at))},
         {EncodableValue("isPlaying"), EncodableValue(s.playing)},
         {EncodableValue("playbackSpeed"), EncodableValue(1.0)},
         {EncodableValue("packageName"), EncodableValue(s.app_id)},

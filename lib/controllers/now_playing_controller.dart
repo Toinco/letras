@@ -261,7 +261,9 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     Uint8List? art;
     try {
       art = await storage.getArtworkBytes(t.title, t.artist) ??
-          await artwork.fetchArtworkBytes(t.title, t.artist);
+          await artwork.fetchArtworkBytes(t.title, t.artist,
+              album: t.album,
+              durationSeconds: t.duration.inSeconds > 0 ? t.duration.inSeconds : null);
     } catch (_) {
       art = null;
     }
@@ -572,7 +574,8 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
       final t = track;
       final translated = await _ensureTranslation();
       final art = t?.albumArt ??
-          await artwork.fetchArtworkBytes(current.song.title, current.song.artist);
+          await artwork.fetchArtworkBytes(current.song.title, current.song.artist,
+              album: current.song.album, durationSeconds: current.song.durationSeconds);
       var toSave = current.copyWith(
         translatedLines: translated,
         translationLang: translated == null ? null : SettingsService.translationLang.value,
@@ -837,7 +840,8 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     _onTrackChanged(previous);
     if (!same) {
       final art = await storage.getArtworkBytes(song.title, song.artist) ??
-          await artwork.fetchArtworkBytes(song.title, song.artist);
+          await artwork.fetchArtworkBytes(song.title, song.artist,
+              album: song.album, durationSeconds: song.durationSeconds);
       if (art != null && _micTrack?.title == song.title) {
         _micTrack = _micTrack!.withAlbumArt(art);
         AccentController.updateFromArtwork(art);

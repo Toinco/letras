@@ -294,7 +294,7 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     }
 
     if !force, let prev = lastEmitted, prev.key == s.key, prev.isPlaying == s.isPlaying,
-       abs(prev.positionNow() - s.positionMs) < 1500 {
+       abs(prev.positionNow() - s.positionMs) < 300 {
       return
     }
     emit(s)
@@ -308,6 +308,8 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
       "album": s.album,
       "durationMs": s.durationMs,
       "positionMs": s.positionMs,
+      // Cuándo se leyó la posición (lo que tarda en llegar a Dart no atrasa la letra).
+      "capturedAtMs": Int((s.readAt.timeIntervalSince1970 * 1000).rounded()),
       "isPlaying": s.isPlaying,
       "playbackSpeed": 1.0,
       "packageName": s.bundleId,

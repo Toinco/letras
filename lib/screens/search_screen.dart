@@ -247,6 +247,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
           result.song.title,
           result.song.artist,
           knownUrl: result.song.artworkUrl,
+          album: result.song.album,
+          durationSeconds: result.song.durationSeconds,
         ),
       ]);
       final translated = fetches[0] as List<String>?;

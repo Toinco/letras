@@ -236,7 +236,8 @@ class FavoritesSyncService {
                 result.syncedLyrics.map((l) => l.text).toList(),
               )
             : Future.value(null),
-        _artworkService.fetchArtworkBytes(song.title, song.artist, knownUrl: song.artworkUrl),
+        _artworkService.fetchArtworkBytes(song.title, song.artist,
+            knownUrl: song.artworkUrl, album: song.album, durationSeconds: song.durationSeconds),
       ]);
       final translated = fetches[0] as List<String>?;
       final artwork = fetches[1] as Uint8List?;

@@ -163,7 +163,8 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
   Future<void> _loadArtwork() async {
     final song = _identitySong;
     final bytes = await _storage.getArtworkBytes(song.title, song.artist) ??
-        await _artworkService.fetchArtworkBytes(song.title, song.artist, knownUrl: song.artworkUrl);
+        await _artworkService.fetchArtworkBytes(song.title, song.artist,
+            knownUrl: song.artworkUrl, album: song.album, durationSeconds: song.durationSeconds);
     if (mounted && bytes != null) {
       setState(() => _artworkBytes = bytes);
       AccentController.updateFromArtwork(bytes);
@@ -410,6 +411,8 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
         identity.title,
         identity.artist,
         knownUrl: identity.artworkUrl,
+        album: identity.album,
+        durationSeconds: identity.durationSeconds,
       );
       await _storage.save(
         _result.copyWith(
