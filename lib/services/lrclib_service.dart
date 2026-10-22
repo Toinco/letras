@@ -244,17 +244,21 @@ class LrclibService {
     } else if (qArtist.isNotEmpty && (rArtist.contains(qArtist) || qArtist.contains(rArtist))) {
       score += 15;
     }
-    if (r.hasSyncedLyrics) score += 10;
+    if (r.hasSyncedLyrics) score += 25;
     if (r.hasWordSync) score += 3;
     // Resultados sin letra (vacíos o marcados instrumentales) casi nunca
     // son lo que se busca: que pierdan contra cualquier otro con letra.
     if (r.plainLyrics.trim().isEmpty && !r.hasSyncedLyrics) score -= 40;
     if (durationSeconds != null && durationSeconds > 0 && r.song.durationSeconds != null) {
       final diff = (r.song.durationSeconds! - durationSeconds).abs();
+      // La duración es lo que dice si es la MISMA versión (y no el video,
+      // la versión de radio o el remaster con otra intro): con otra versión
+      // la letra queda corrida segundos. Pesa más que un artista escrito
+      // distinto o que traer tiempos por palabra.
       if (diff <= 2) {
-        score += 8;
+        score += 20;
       } else if (diff <= 5) {
-        score += 4;
+        score += 8;
       }
     }
     return score;
@@ -271,7 +275,8 @@ class LrclibService {
   bool _confident(LyricsResult r, String title, String artist, int? durationSeconds) {
     if (!r.hasSyncedLyrics) return false;
     final knowsDuration = durationSeconds != null && durationSeconds > 0;
-    return _matchScore(r, title, artist, durationSeconds) >= (knowsDuration ? 98 : 90);
+    // Título y artista iguales (80) + sincronizada (25) + misma duración (20).
+    return _matchScore(r, title, artist, durationSeconds) >= (knowsDuration ? 125 : 105);
   }
 
   /// El título tiene que parecerse al menos un poco, salvo que la duración

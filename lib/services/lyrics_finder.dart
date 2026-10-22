@@ -117,8 +117,9 @@ class LyricsFinder {
         // sí (sobre todo en inglés). Con ellos el karaoke sigue al cantante
         // de verdad, con sus pausas, en vez de estimarse.
         final ne = await netease().timeout(wordSyncPatience, onTimeout: () => null);
-        if (ne != null && sameTiming(lrclib, ne)) {
-          return (result: ne.copyWith(song: lrclib.song), transient: false);
+        final aligned = ne == null ? null : alignWordSync(lrclib, ne);
+        if (aligned != null) {
+          return (result: aligned.copyWith(song: lrclib.song), transient: false);
         }
       }
       return (result: lrclib, transient: false);
@@ -150,31 +151,59 @@ class LyricsFinder {
   static Duration wordSyncPatience = const Duration(milliseconds: 2500);
 
   /// ¿[wordSynced] es la misma versión de la canción que [lineSynced]?
-  /// Tiene que traer tiempos por palabra y las líneas tienen que arrancar
-  /// más o menos en los mismos momentos (si no, es otra versión o está
-  /// corrida, y mejor quedarse con la de LRCLIB).
-  static bool sameTiming(LyricsResult lineSynced, LyricsResult wordSynced) {
-    if (!wordSynced.hasWordSync) return false;
+  static bool sameTiming(LyricsResult lineSynced, LyricsResult wordSynced) =>
+      alignWordSync(lineSynced, wordSynced) != null;
+
+  /// Devuelve [wordSynced] (tiempos por palabra) corrido para que coincida
+  /// con los tiempos de [lineSynced] (LRCLIB, elegida por la duración de lo
+  /// que suena), o `null` si no es la misma versión.
+  ///
+  /// Antes se aceptaba con que las líneas arrancaran a menos de 1,5 s, y se
+  /// usaba tal cual: si la de NetEase venía corrida un segundo entero (otra
+  /// edición del tema, un silencio distinto al principio), la letra quedaba
+  /// atrasada todo el tema. Ahora se mide el corrimiento típico (mediana),
+  /// se exige que casi todas las líneas coincidan después de corregirlo, y
+  /// se corrige.
+  static LyricsResult? alignWordSync(LyricsResult lineSynced, LyricsResult wordSynced) {
+    if (!wordSynced.hasWordSync) return null;
     List<Duration> starts(LyricsResult r) => [
           for (final l in r.syncedLyrics)
             if (l.text.trim().isNotEmpty) l.timestamp,
         ];
     final a = starts(lineSynced);
     final b = starts(wordSynced);
-    if (a.length < 3 || b.length < 3) return false;
-    if ((a.length - b.length).abs() > math.max(4, a.length * 0.25)) return false;
-    // Para cada línea de LRCLIB, ¿hay una de NetEase que arranque cerca?
-    var close = 0;
+    if (a.length < 3 || b.length < 3) return null;
+    if ((a.length - b.length).abs() > math.max(4, a.length * 0.25)) return null;
+
+    // Para cada línea de LRCLIB, la de NetEase que arranca más cerca.
+    const window = Duration(milliseconds: 1500);
+    final deltas = <int>[];
     var j = 0;
     for (final t in a) {
       while (j + 1 < b.length && b[j + 1] <= t) {
         j++;
       }
-      final near = [b[j], if (j + 1 < b.length) b[j + 1]]
-          .any((u) => (u - t).abs() <= const Duration(milliseconds: 1500));
-      if (near) close++;
+      Duration? best;
+      for (final u in [b[j], if (j + 1 < b.length) b[j + 1]]) {
+        final d = u - t;
+        if (d.abs() <= window && (best == null || d.abs() < best.abs())) best = d;
+      }
+      if (best != null) deltas.add(best.inMilliseconds);
     }
-    return close >= a.length * 0.7;
+    if (deltas.length < a.length * 0.7) return null;
+
+    final sorted = [...deltas]..sort();
+    final median = sorted[sorted.length ~/ 2];
+    // Después de corregir el corrimiento, casi todas tienen que caer justas.
+    const tolerance = 350;
+    final tight = deltas.where((d) => (d - median).abs() <= tolerance).length;
+    if (tight < a.length * 0.7) return null;
+
+    if (median.abs() < 40) return wordSynced;
+    final shift = Duration(milliseconds: -median);
+    return wordSynced.copyWith(
+      syncedLyrics: [for (final l in wordSynced.syncedLyrics) l.shifted(shift)],
+    );
   }
 
   /// Olvida lo resuelto para esta canción (al elegir otra letra a mano).

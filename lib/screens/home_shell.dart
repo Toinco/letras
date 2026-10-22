@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers.dart';
 import '../theme/app_theme.dart';
 import '../utils/platform.dart';
+import '../widgets/app_nav_bar.dart';
 import '../widgets/desktop.dart';
 import '../widgets/update_prompt.dart';
 import '../services/favorites_sync_service.dart';
@@ -196,17 +197,17 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
 
   Widget _buildNarrow(Widget pages, bool hideChrome) {
     return Scaffold(
+      // En Reproduciendo la carátula difuminada sigue por detrás de la
+      // barra (su contenido está en un SafeArea, que ya deja el lugar).
+      // Las otras pestañas terminan arriba de la barra, como siempre.
+      extendBody: _index == 0,
       body: pages,
       bottomNavigationBar: hideChrome
           ? null
-          : BottomNavigationBar(
+          : AppNavBar(
+              destinations: _destinations,
               currentIndex: _index,
-              onTap: _select,
-              type: BottomNavigationBarType.fixed,
-              items: [
-                for (final d in _destinations)
-                  BottomNavigationBarItem(icon: Icon(d.icon), label: d.label),
-              ],
+              onSelected: _select,
             ),
     );
   }

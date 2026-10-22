@@ -293,10 +293,18 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     return pos + widget.offset;
   }
 
-  void _recomputeIndex(Duration rawPos) {
+  /// La línea nueva se marca un toque antes de que empiece: el cambio de
+  /// línea (resaltado + desplazamiento) tarda en verse, y así queda a
+  /// tiempo con la voz en vez de llegar detrás.
+  static const _lineLead = Duration(milliseconds: 120);
+
+  void _recomputeIndex(Duration rawPos) => _updateIndex(rawPos + widget.offset);
+
+  /// [pos] ya incluye el desfase.
+  void _updateIndex(Duration pos) {
     if (widget.lines.isEmpty) return;
-    final pos = rawPos + widget.offset;
-    final newIndex = widget.lines.lastIndexWhere((l) => l.timestamp <= pos);
+    final at = pos + _lineLead;
+    final newIndex = widget.lines.lastIndexWhere((l) => l.timestamp <= at);
     if (newIndex != _currentIndex) {
       setState(() {
         _currentIndex = newIndex;
@@ -364,6 +372,9 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     final now = _effectiveNow;
     _now.value = now;
     _ensureItemKeys();
+    // En cada cuadro (no solo cuando llega una posición, cada 150 ms): la
+    // línea cambia justo a tiempo.
+    if (_advancing) _updateIndex(now);
     _updateGap(now);
     if (_currentIndex >= 0 && _currentIndex < widget.lines.length) {
       final start = widget.lines[_currentIndex].timestamp;

@@ -156,20 +156,36 @@ class NowPlayingTrack {
         durationSeconds: duration.inSeconds,
       );
 
+  /// Cuándo valía la posición recibida. Android manda la hora exacta en que
+  /// la midió; si no viene (otras plataformas) o es rara (reloj cambiado),
+  /// se usa la hora de llegada.
+  static DateTime _capturedAt(Object? rawMs) {
+    final now = DateTime.now();
+    if (rawMs is! num) return now;
+    final at = DateTime.fromMillisecondsSinceEpoch(rawMs.toInt());
+    final age = now.difference(at);
+    if (age.isNegative || age > const Duration(seconds: 3)) return now;
+    return at;
+  }
+
   factory NowPlayingTrack.fromMap(Map<dynamic, dynamic> map) {
     final rawArt = map['albumArt'];
+    final isPlaying = map['isPlaying'] as bool? ?? false;
+    final speed = (map['playbackSpeed'] as num?)?.toDouble() ?? 1.0;
     return NowPlayingTrack(
       title: (map['title'] as String?)?.trim() ?? '',
       artist: (map['artist'] as String?)?.trim() ?? '',
       album: map['album'] as String?,
       position: Duration(milliseconds: (map['positionMs'] as num?)?.toInt() ?? 0),
       duration: Duration(milliseconds: (map['durationMs'] as num?)?.toInt() ?? 0),
-      isPlaying: map['isPlaying'] as bool? ?? false,
-      capturedAt: DateTime.now(),
+      isPlaying: isPlaying,
+      capturedAt: _capturedAt(map['capturedAtMs']),
       albumArt: rawArt is Uint8List
           ? rawArt
           : (rawArt is List<int> ? Uint8List.fromList(rawArt) : null),
-      playbackSpeed: (map['playbackSpeed'] as num?)?.toDouble() ?? 1.0,
+      // Algunas apps informan velocidad 0 aunque estén sonando: con eso la
+      // letra quedaba congelada hasta la siguiente resincronización.
+      playbackSpeed: speed > 0 ? speed : 1.0,
       packageName: map['packageName'] as String?,
       nextTitle: map['nextTitle'] as String?,
       nextArtist: map['nextArtist'] as String?,

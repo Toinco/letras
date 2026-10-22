@@ -215,6 +215,11 @@ object MediaSessionBridge {
         map["artist"] = artist
         map["album"] = album
         map["durationMs"] = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        // La hora exacta (reloj del teléfono) en que vale esa posición: Flutter
+        // la usa para interpolar. Si tomara la hora de cuando le llega el
+        // evento, lo que tarda en armarse (carátula) y en cruzar el canal
+        // dejaría la letra atrasada.
+        map["capturedAtMs"] = System.currentTimeMillis()
         map["positionMs"] = positionMs(playbackState)
         map["isPlaying"] = playbackState?.state == PlaybackState.STATE_PLAYING
         map["playbackSpeed"] = (playbackState?.playbackSpeed ?: 1f).toDouble()

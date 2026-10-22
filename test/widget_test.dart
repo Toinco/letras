@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:lyrics_app/main.dart';
+import 'package:lyrics_app/widgets/app_nav_bar.dart';
 
 void main() {
   testWidgets('La app arranca y muestra la pestaña Reproduciendo', (WidgetTester tester) async {
@@ -46,7 +47,7 @@ void main() {
 
   testWidgets('En el teléfono la navegación va abajo', (tester) async {
     await pumpAt(tester, const Size(400, 850));
-    expect(find.byType(BottomNavigationBar), findsOneWidget);
+    expect(find.byType(AppNavBar), findsOneWidget);
     expect(find.byType(NavigationRail), findsNothing);
     await tester.pumpWidget(const SizedBox());
   });
@@ -54,7 +55,7 @@ void main() {
   testWidgets('En una ventana ancha la navegación va al costado', (tester) async {
     await pumpAt(tester, const Size(1200, 800));
     expect(find.byType(NavigationRail), findsOneWidget);
-    expect(find.byType(BottomNavigationBar), findsNothing);
+    expect(find.byType(AppNavBar), findsNothing);
     // Ajustes está en el menú lateral.
     expect(find.byTooltip('Ajustes'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
