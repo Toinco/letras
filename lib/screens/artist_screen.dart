@@ -8,6 +8,7 @@ import '../widgets/album_card.dart';
 import '../widgets/cached_artwork.dart';
 import 'album_screen.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 /// Muestra un artista: foto y su discografía completa. Tal como se pidió:
 /// "que puedas buscar por artista y que te aparezca el artista y su
@@ -48,77 +49,79 @@ class _ArtistScreenState extends ConsumerState<ArtistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.artist.name, overflow: TextOverflow.ellipsis)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      ClipOval(
-                        child: CachedArtwork(
-                          url: _artworkUrl,
-                          size: 72,
-                          fallbackIcon: Icons.person_rounded,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              widget.artist.name,
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-                            ),
-                            if (widget.artist.genre != null) ...[
-                              const SizedBox(height: 4),
-                              Text(widget.artist.genre!,
-                                  style: const TextStyle(color: AppTheme.textSecondary)),
-                            ],
-                            const SizedBox(height: 2),
-                            Text(
-                              '${_albums.length} álbumes',
-                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const Divider(height: 1, color: Colors.white12),
-                Expanded(
-                  child: _albums.isEmpty
-                      ? const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Text(
-                              'No se encontró discografía para este artista.',
-                              style: TextStyle(color: AppTheme.textSecondary),
-                            ),
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(title: Text(widget.artist.name, overflow: TextOverflow.ellipsis)),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
+                      children: [
+                        ClipOval(
+                          child: CachedArtwork(
+                            url: _artworkUrl,
+                            size: 72,
+                            fallbackIcon: Icons.person_rounded,
                           ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                          itemCount: _albums.length,
-                          itemBuilder: (context, index) {
-                            final album = _albums[index];
-                            return AlbumCard(
-                              album: album,
-                              showArtist: false,
-                              onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => AlbumScreen(album: album)),
-                              ),
-                            );
-                          },
                         ),
-                ),
-              ],
-            ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                widget.artist.name,
+                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                              ),
+                              if (widget.artist.genre != null) ...[
+                                const SizedBox(height: 4),
+                                Text(widget.artist.genre!,
+                                    style: const TextStyle(color: AppTheme.textSecondary)),
+                              ],
+                              const SizedBox(height: 2),
+                              Text(
+                                '${_albums.length} álbumes',
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: Colors.white12),
+                  Expanded(
+                    child: _albums.isEmpty
+                        ? const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(24),
+                              child: Text(
+                                'No se encontró discografía para este artista.',
+                                style: TextStyle(color: AppTheme.textSecondary),
+                              ),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                            itemCount: _albums.length,
+                            itemBuilder: (context, index) {
+                              final album = _albums[index];
+                              return AlbumCard(
+                                album: album,
+                                showArtist: false,
+                                onTap: () => Navigator.of(context).push(
+                                  MaterialPageRoute(builder: (_) => AlbumScreen(album: album)),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

@@ -22,6 +22,7 @@ import 'artist_screen.dart';
 import 'lyrics_screen.dart';
 import 'settings_screen.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 /// Buscador con 3 pestañas: Canciones, Álbumes y Artistas — un solo campo
 /// de texto dispara las tres búsquedas (más la búsqueda entre tus letras
@@ -350,7 +351,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   void _showVersions(LyricsResult best) {
     final versions = _versions[_keyFor(best)] ?? [best];
     String fmt(int? s) => s == null ? '' : '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
-    showModalBottomSheet(
+    showAdaptiveSheet(
       context: context,
       backgroundColor: AppTheme.surface,
       shape: const RoundedRectangleBorder(
@@ -591,71 +592,75 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Buscar'),
-        actions: [
-          IconButton(
-            tooltip: 'Ajustes',
-            icon: const Icon(Icons.settings_rounded),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const SettingsScreen()),
-            ),
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Buscar'),
+          actions: [
+            // En pantallas anchas Ajustes está en el menú lateral.
+            if (!isWideLayout(context))
+              IconButton(
+                tooltip: 'Ajustes',
+                icon: const Icon(Icons.settings_rounded),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                ),
+              ),
+          ],
+          bottom: TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(text: 'Canciones'),
+              Tab(text: 'Álbumes'),
+              Tab(text: 'Artistas'),
+            ],
           ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Canciones'),
-            Tab(text: 'Álbumes'),
-            Tab(text: 'Artistas'),
-          ],
         ),
-      ),
-      bottomNavigationBar:
-          (_selectionMode && _tabController.index == 0) ? _buildSelectionBar() : null,
-      body: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-        child: Column(
-          children: [
-            TextField(
-              controller: _queryController,
-              decoration: const InputDecoration(
-                hintText: 'Título, artista, álbum o parte de la letra',
-                prefixIcon: Icon(Icons.search_rounded),
+        bottomNavigationBar:
+            (_selectionMode && _tabController.index == 0) ? _buildSelectionBar() : null,
+        body: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          child: Column(
+            children: [
+              TextField(
+                controller: _queryController,
+                decoration: const InputDecoration(
+                  hintText: 'Título, artista, álbum o parte de la letra',
+                  prefixIcon: Icon(Icons.search_rounded),
+                ),
+                textInputAction: TextInputAction.search,
+                onChanged: _onQueryChanged,
+                onSubmitted: (_) => _search(),
               ),
-              textInputAction: TextInputAction.search,
-              onChanged: _onQueryChanged,
-              onSubmitted: (_) => _search(),
-            ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _search,
-                child: _loading
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                      )
-                    : const Text('Buscar'),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _search,
+                  child: _loading
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Text('Buscar'),
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Expanded(
-              child: !_searched
-                  ? _buildHistory()
-                  : TabBarView(
-                      controller: _tabController,
-                      children: [
-                        _buildSongsTab(),
-                        _buildAlbumsTab(),
-                        _buildArtistsTab(),
-                      ],
-                    ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Expanded(
+                child: !_searched
+                    ? _buildHistory()
+                    : TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildSongsTab(),
+                          _buildAlbumsTab(),
+                          _buildArtistsTab(),
+                        ],
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );

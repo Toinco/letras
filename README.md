@@ -84,6 +84,17 @@ de lo que suena.
    controlarlos: acepta, así la app ve qué suena y en qué segundo va.
 
 En la Mac, la letra fuera de la app va en la **barra de menú**, junto al reloj.
+Al agrandar la ventana pasa al diseño de escritorio (carátula grande al costado
+de la letra y menú lateral), y el modo karaoke usa la pantalla completa.
+
+| Atajo | Qué hace |
+| --- | --- |
+| Espacio | Reproducir / pausar |
+| ⌘ ← / ⌘ → | Canción anterior / siguiente |
+| ⌘ T | Traducción |
+| ⌘ 1 / ⌘ 2 / ⌘ 3 | Reproduciendo / Buscar / Descargas |
+| ⌘ F | Buscar |
+| ⌘ , | Ajustes |
 
 Las versiones nuevas se instalan desde la misma app:
 **Ajustes → Buscar actualizaciones**.

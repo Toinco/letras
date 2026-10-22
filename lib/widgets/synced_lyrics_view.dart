@@ -138,6 +138,9 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
   // Dónde queda la línea actual dentro de la vista (0 = arriba, 1 = abajo).
   static const double _anchor = 0.32;
 
+  /// Línea bajo el mouse (en la compu).
+  int? _hoveredLine;
+
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<Duration>? _sub;
   int _currentIndex = -1;
@@ -468,38 +471,60 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     }
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(28, 20, 28, 120),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: Colors.white10,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Text(
-              'Letra sin sincronizar',
-              style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
-            ),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 720),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'Letra sin sincronizar',
+                  style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SelectableText(
+                text,
+                style: TextStyle(
+                  fontSize: 21 * scale,
+                  height: 1.55,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withValues(alpha: 0.85),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 21 * scale,
-              height: 1.55,
-              fontWeight: FontWeight.w600,
-              color: Colors.white.withValues(alpha: 0.85),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildSynced(double scale) {
-    final fontSize = 27.0 * scale;
+  /// En pantallas anchas la letra crece con el espacio (como en Música de
+  /// la Mac); en el teléfono queda igual.
+  static double _widthScale(double width) => (width / 560).clamp(1.0, 1.4);
 
+  Widget _buildSynced(double scale) {
+    return LayoutBuilder(builder: (context, outer) {
+      final fontSize = 27.0 * scale * _widthScale(outer.maxWidth);
+      // Renglones de un largo cómodo: los coros (a la derecha) quedan cerca
+      // de la línea principal en vez de irse al borde de la ventana.
+      final maxLineWidth = math.max(fontSize * 20, 360.0);
+      // Sin barra de desplazamiento (en la Mac aparece sola y ensucia).
+      return ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+        child: _buildSyncedSized(fontSize, maxLineWidth),
+      );
+    });
+  }
+
+  Widget _buildSyncedSized(double fontSize, double maxLineWidth) {
     return Stack(
       alignment: Alignment.bottomCenter,
       children: [
@@ -529,21 +554,27 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
                 padding: EdgeInsets.only(top: h * _anchor, bottom: h * (1 - _anchor)),
                 child: ValueListenableBuilder<bool>(
                   valueListenable: SettingsService.blurDistantLines,
-                  builder: (context, blur, _) => Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_hasIntro)
-                        KeyedSubtree(
-                          key: _introKey,
-                          child: _InterludeDots(
-                            active: _currentIndex < 0,
-                            progress: _introProgress,
-                            size: fontSize,
-                          ),
-                        ),
-                      for (var i = 0; i < widget.lines.length; i++)
-                        _buildLine(i, fontSize, blur: blur),
-                    ],
+                  builder: (context, blur, _) => Align(
+                    alignment: Alignment.centerLeft,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: maxLineWidth),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_hasIntro)
+                            KeyedSubtree(
+                              key: _introKey,
+                              child: _InterludeDots(
+                                active: _currentIndex < 0,
+                                progress: _introProgress,
+                                size: fontSize,
+                              ),
+                            ),
+                          for (var i = 0; i < widget.lines.length; i++)
+                            _buildLine(i, fontSize, blur: blur),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -631,32 +662,44 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
       translation: translation,
     );
 
-    return GestureDetector(
+    final hovered = _hoveredLine == index && widget.onSeek != null;
+    return MouseRegion(
       key: _itemKeys[index],
-      behavior: HitTestBehavior.opaque,
-      onTap: () => _onLineTap(index),
-      onLongPress: () => _onLineLongPress(index),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        margin: const EdgeInsets.symmetric(horizontal: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color:
-              isMatch ? accent.withValues(alpha: isActiveMatch ? 0.25 : 0.12) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: _Blur(
-          sigma: _blurFor(index, blur),
-          child: AnimatedScale(
-            scale: isCurrent ? 1.0 : 0.96,
-            alignment: Alignment.centerLeft,
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeOutCubic,
-            child: AnimatedOpacity(
-              opacity: opacity,
+      cursor: widget.onSeek != null ? SystemMouseCursors.click : MouseCursor.defer,
+      onEnter: (_) => setState(() => _hoveredLine = index),
+      onExit: (_) {
+        if (_hoveredLine == index) setState(() => _hoveredLine = null);
+      },
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _onLineTap(index),
+        onLongPress: () => _onLineLongPress(index),
+        // En la compu, clic derecho = lo mismo que mantener apretado.
+        onSecondaryTap: () => _onLineLongPress(index),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          margin: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: isMatch
+                ? accent.withValues(alpha: isActiveMatch ? 0.25 : 0.12)
+                : (hovered ? Colors.white.withValues(alpha: 0.07) : Colors.transparent),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: _Blur(
+            // Al pasar el mouse la línea se lee entera, aunque esté lejos.
+            sigma: hovered ? 0 : _blurFor(index, blur),
+            child: AnimatedScale(
+              scale: isCurrent ? 1.0 : 0.96,
+              alignment: Alignment.centerLeft,
               duration: const Duration(milliseconds: 400),
-              curve: Curves.easeOut,
-              child: content,
+              curve: Curves.easeOutCubic,
+              child: AnimatedOpacity(
+                opacity: hovered ? math.max(opacity, 0.7) : opacity,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOut,
+                child: content,
+              ),
             ),
           ),
         ),

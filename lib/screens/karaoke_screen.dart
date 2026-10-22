@@ -4,6 +4,8 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/lyrics_result.dart';
 import '../widgets/synced_lyrics_view.dart';
+import '../utils/platform.dart';
+import '../widgets/desktop.dart';
 
 /// Modo karaoke para la tele: solo la línea actual, enorme y centrada,
 /// con la siguiente chiquita abajo. Pantalla completa y siempre encendida.
@@ -33,11 +35,19 @@ class KaraokeScreen extends StatefulWidget {
 class _KaraokeScreenState extends State<KaraokeScreen> {
   bool _showClose = true;
 
+  /// En la Mac el karaoke pone la ventana en pantalla completa (y la deja
+  /// como estaba al salir).
+  bool _enteredFullScreen = false;
+
   @override
   void initState() {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable().catchError((_) {});
+    if (isMac && !MacWindow.fullScreen.value) {
+      _enteredFullScreen = true;
+      MacWindow.toggleFullScreen();
+    }
     _hideCloseSoon();
   }
 
@@ -55,6 +65,7 @@ class _KaraokeScreenState extends State<KaraokeScreen> {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     WakelockPlus.disable().catchError((_) {});
+    if (_enteredFullScreen && MacWindow.fullScreen.value) MacWindow.toggleFullScreen();
     super.dispose();
   }
 

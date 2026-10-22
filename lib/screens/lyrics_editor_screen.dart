@@ -8,6 +8,7 @@ import '../models/lyrics_result.dart';
 import '../models/song.dart';
 import '../services/lrclib_publisher.dart';
 import '../theme/app_theme.dart';
+import '../widgets/desktop.dart';
 
 class _EditLine {
   String text;
@@ -306,19 +307,21 @@ class _LyricsEditorScreenState extends State<LyricsEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_step == 0 ? 'Corregir letra' : 'Sincronizar'),
-        actions: [
-          if (_step == 1)
-            TextButton(
-              onPressed: () => setState(() => _step = 0),
-              child: const Text('Texto'),
-            ),
-          TextButton(onPressed: _save, child: const Text('Guardar')),
-        ],
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_step == 0 ? 'Corregir letra' : 'Sincronizar'),
+          actions: [
+            if (_step == 1)
+              TextButton(
+                onPressed: () => setState(() => _step = 0),
+                child: const Text('Texto'),
+              ),
+            TextButton(onPressed: _save, child: const Text('Guardar')),
+          ],
+        ),
+        body: _step == 0 ? _buildTextStep() : _buildSyncStep(),
       ),
-      body: _step == 0 ? _buildTextStep() : _buildSyncStep(),
     );
   }
 

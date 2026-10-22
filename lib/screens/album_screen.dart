@@ -8,6 +8,7 @@ import '../widgets/cached_artwork.dart';
 import '../widgets/song_card.dart';
 import 'lyrics_screen.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 /// Muestra un álbum: carátula grande, datos, y el listado completo de sus
 /// canciones. Tal como se pidió: "si buscas un álbum te aparezca el álbum
@@ -120,116 +121,118 @@ class _AlbumScreenState extends ConsumerState<AlbumScreen> {
   @override
   Widget build(BuildContext context) {
     final album = widget.album;
-    return Scaffold(
-      appBar: AppBar(title: Text(album.title, overflow: TextOverflow.ellipsis)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    children: [
-                      CachedArtwork(
-                        url: album.artworkUrl,
-                        size: 88,
-                        borderRadius: 14,
-                        fallbackIcon: Icons.album_rounded,
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              album.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(album.artist,
-                                style: const TextStyle(color: AppTheme.textSecondary)),
-                            const SizedBox(height: 2),
-                            Text(
-                              [
-                                if (album.releaseYear != null) '${album.releaseYear}',
-                                if (album.trackCount != null) '${album.trackCount} canciones',
-                              ].join(' · '),
-                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: Row(
-                    children: [
-                      const Spacer(),
-                      if (!_bulkRunning)
-                        TextButton(
-                          onPressed: _tracks.isEmpty ? null : _downloadAll,
-                          child: const Text('Descargar todas'),
-                        ),
-                    ],
-                  ),
-                ),
-                if (_bulkRunning)
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(title: Text(album.title, overflow: TextOverflow.ellipsis)),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    child: Column(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(
                       children: [
-                        LinearProgressIndicator(
-                          value: _bulkTotal > 0 ? _bulkDone / _bulkTotal : null,
-                          backgroundColor: AppTheme.surface,
+                        CachedArtwork(
+                          url: album.artworkUrl,
+                          size: 88,
+                          borderRadius: 14,
+                          fallbackIcon: Icons.album_rounded,
                         ),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              '$_bulkDone / $_bulkTotal',
-                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
-                            ),
-                            TextButton(
-                              onPressed: () => setState(() => _bulkCancelled = true),
-                              child: const Text('Cancelar'),
-                            ),
-                          ],
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                album.title,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(album.artist,
+                                  style: const TextStyle(color: AppTheme.textSecondary)),
+                              const SizedBox(height: 2),
+                              Text(
+                                [
+                                  if (album.releaseYear != null) '${album.releaseYear}',
+                                  if (album.trackCount != null) '${album.trackCount} canciones',
+                                ].join(' · '),
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                const Divider(height: 1, color: Colors.white12),
-                Expanded(
-                  child: _error != null
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(_error!,
-                                style: const TextStyle(color: AppTheme.textSecondary)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        const Spacer(),
+                        if (!_bulkRunning)
+                          TextButton(
+                            onPressed: _tracks.isEmpty ? null : _downloadAll,
+                            child: const Text('Descargar todas'),
                           ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                          itemCount: _tracks.length,
-                          itemBuilder: (context, index) {
-                            final track = _tracks[index];
-                            return SongCard(
-                              song: track,
-                              subtitleOverride: track.trackNumber != null
-                                  ? '${track.trackNumber}. ${track.artist}'
-                                  : track.artist,
-                              onTap: () => _openTrack(track),
-                            );
-                          },
-                        ),
-                ),
-              ],
-            ),
+                      ],
+                    ),
+                  ),
+                  if (_bulkRunning)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      child: Column(
+                        children: [
+                          LinearProgressIndicator(
+                            value: _bulkTotal > 0 ? _bulkDone / _bulkTotal : null,
+                            backgroundColor: AppTheme.surface,
+                          ),
+                          const SizedBox(height: 6),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '$_bulkDone / $_bulkTotal',
+                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                              ),
+                              TextButton(
+                                onPressed: () => setState(() => _bulkCancelled = true),
+                                child: const Text('Cancelar'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  const Divider(height: 1, color: Colors.white12),
+                  Expanded(
+                    child: _error != null
+                        ? Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Text(_error!,
+                                  style: const TextStyle(color: AppTheme.textSecondary)),
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                            itemCount: _tracks.length,
+                            itemBuilder: (context, index) {
+                              final track = _tracks[index];
+                              return SongCard(
+                                song: track,
+                                subtitleOverride: track.trackNumber != null
+                                    ? '${track.trackNumber}. ${track.artist}'
+                                    : track.artist,
+                                onTap: () => _openTrack(track),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

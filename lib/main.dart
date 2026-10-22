@@ -8,6 +8,7 @@ import 'services/accent_controller.dart';
 import 'services/error_log.dart';
 import 'services/settings_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/desktop.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -23,6 +24,7 @@ Future<void> main() async {
     return true;
   };
   await SettingsService.loadLivePrefs();
+  MacWindow.init();
   runApp(const ProviderScope(child: LyricsApp()));
 }
 
@@ -43,6 +45,7 @@ class LyricsApp extends StatelessWidget {
           darkTheme: theme,
           themeMode: ThemeMode.dark,
           home: const HomeShell(),
+          builder: (context, child) => MacWindowInsets(child: child!),
         );
       },
     );

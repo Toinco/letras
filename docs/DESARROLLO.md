@@ -251,6 +251,14 @@ flutter run -d macos --dart-define-from-file=config/dart_defines.json
   Ajustes del Sistema > Privacidad y seguridad > Automatización.
 - "Letra fuera de la app" es la línea actual en la barra de menú
   (`MenuBarLyrics.swift`).
+- La barra de título es transparente y el contenido llega hasta arriba:
+  `MacWindowInsets` (en `lib/widgets/desktop.dart`) deja libres los 28 pt de
+  los tres botones como si fueran la barra de estado del teléfono, y una
+  franja nativa invisible permite arrastrar la ventana.
+- Desde 760 pt de ancho (`kWideLayoutBreakpoint`) la app usa el diseño de
+  escritorio: menú lateral, Reproduciendo con la carátula al costado, las
+  listas centradas (`ReadableFrame`) y los menús de abajo como diálogos
+  (`showAdaptiveSheet`). Vale también para tablets.
 - El login de Spotify vuelve con el mismo `io.letras.app://spotify-callback`
   que en Android (registrado en `Info.plist`): no hay que cambiar nada en el
   panel de Spotify.

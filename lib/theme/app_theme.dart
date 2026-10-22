@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 class AppTheme {
   static const Color background = Color(0xFF0A0A0A);
   static const Color surface = Color(0xFF1C1C1E);
+
+  /// Menú lateral en pantallas anchas.
+  static const Color sidebar = Color(0xFF111113);
   /// Rojo estilo Apple Music: el acento por defecto. El acento real de
   /// cada pantalla sale de `Theme.of(context).colorScheme.primary`, que
   /// cambia con la carátula de lo que suena (ver AccentController).
@@ -27,6 +30,10 @@ class AppTheme {
       appBarTheme: const AppBarTheme(
         backgroundColor: background,
         elevation: 0,
+        // Sin el tinte que Material 3 le pone al scrollear: la barra queda
+        // del mismo negro que el fondo.
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
         centerTitle: false,
         titleTextStyle: TextStyle(
           color: textPrimary,
@@ -44,6 +51,29 @@ class AppTheme {
         selectedItemColor: accent,
         unselectedItemColor: textSecondary,
         type: BottomNavigationBarType.fixed,
+      ),
+      navigationRailTheme: NavigationRailThemeData(
+        backgroundColor: Colors.transparent,
+        indicatorColor: accent.withValues(alpha: 0.18),
+        selectedIconTheme: IconThemeData(color: accent),
+        unselectedIconTheme: const IconThemeData(color: textSecondary),
+        selectedLabelTextStyle:
+            TextStyle(color: accent, fontSize: 11.5, fontWeight: FontWeight.w600),
+        unselectedLabelTextStyle: const TextStyle(color: textSecondary, fontSize: 11.5),
+        minWidth: 84,
+      ),
+      scrollbarTheme: ScrollbarThemeData(
+        thickness: WidgetStateProperty.all(6),
+        radius: const Radius.circular(3),
+        thumbColor: WidgetStateProperty.all(Colors.white24),
+      ),
+      tooltipTheme: TooltipThemeData(
+        waitDuration: const Duration(milliseconds: 500),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2E),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        textStyle: const TextStyle(color: Colors.white, fontSize: 12),
       ),
       chipTheme: ChipThemeData(
         selectedColor: accent.withValues(alpha: 0.25),

@@ -8,6 +8,7 @@ import '../widgets/playlist_sheet.dart';
 import '../widgets/song_card.dart';
 import 'lyrics_screen.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 /// Una playlist de letras: se ordena arrastrando y se saca deslizando.
 class PlaylistScreen extends ConsumerStatefulWidget {
@@ -75,65 +76,67 @@ class _PlaylistScreenState extends ConsumerState<PlaylistScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_name),
-        actions: [
-          IconButton(tooltip: 'Renombrar', icon: const Icon(Icons.edit_rounded), onPressed: _rename),
-          IconButton(
-            tooltip: 'Borrar playlist',
-            icon: const Icon(Icons.delete_outline_rounded),
-            onPressed: _delete,
-          ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _songs.isEmpty
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text(
-                      'Vacía. En Descargas, mantén apretada una letra para agregarla aquí.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ),
-                )
-              : ReorderableListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: _songs.length,
-                  onReorder: _onReorder,
-                  itemBuilder: (context, i) {
-                    final r = _songs[i];
-                    return Dismissible(
-                      key: ValueKey('${r.song.artist}|${r.song.title}'),
-                      direction: DismissDirection.endToStart,
-                      background: Container(
-                        alignment: Alignment.centerRight,
-                        padding: const EdgeInsets.only(right: 20),
-                        child: const Icon(Icons.playlist_remove_rounded),
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_name),
+          actions: [
+            IconButton(tooltip: 'Renombrar', icon: const Icon(Icons.edit_rounded), onPressed: _rename),
+            IconButton(
+              tooltip: 'Borrar playlist',
+              icon: const Icon(Icons.delete_outline_rounded),
+              onPressed: _delete,
+            ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _songs.isEmpty
+                ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Vacía. En Descargas, mantén apretada una letra para agregarla aquí.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppTheme.textSecondary),
                       ),
-                      onDismissed: (_) {
-                        _service.remove(widget.playlist.id, r);
-                        setState(() => _songs.removeAt(i));
-                      },
-                      child: SongCard(
-                        song: r.song,
-                        trailing: ReorderableDragStartListener(
-                          index: i,
-                          child: const Padding(
-                            padding: EdgeInsets.all(8),
-                            child: Icon(Icons.drag_handle_rounded, color: AppTheme.textSecondary),
+                    ),
+                  )
+                : ReorderableListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: _songs.length,
+                    onReorder: _onReorder,
+                    itemBuilder: (context, i) {
+                      final r = _songs[i];
+                      return Dismissible(
+                        key: ValueKey('${r.song.artist}|${r.song.title}'),
+                        direction: DismissDirection.endToStart,
+                        background: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.only(right: 20),
+                          child: const Icon(Icons.playlist_remove_rounded),
+                        ),
+                        onDismissed: (_) {
+                          _service.remove(widget.playlist.id, r);
+                          setState(() => _songs.removeAt(i));
+                        },
+                        child: SongCard(
+                          song: r.song,
+                          trailing: ReorderableDragStartListener(
+                            index: i,
+                            child: const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: Icon(Icons.drag_handle_rounded, color: AppTheme.textSecondary),
+                            ),
+                          ),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => LyricsScreen(result: r)),
                           ),
                         ),
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => LyricsScreen(result: r)),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+                      );
+                    },
+                  ),
+      ),
     );
   }
 }

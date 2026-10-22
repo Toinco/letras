@@ -29,4 +29,34 @@ void main() {
     // Al desarmar todo no quedan timers colgando (el controlador se libera).
     await tester.pumpWidget(const SizedBox());
   });
+
+  Future<void> pumpAt(WidgetTester tester, Size size) async {
+    SharedPreferences.setMockInitialValues({});
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('io.letras.app/now_playing'),
+      (call) async => call.method == 'isNotificationAccessGranted' ? false : null,
+    );
+    tester.view.physicalSize = size;
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(const ProviderScope(child: LyricsApp()));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+
+  testWidgets('En el teléfono la navegación va abajo', (tester) async {
+    await pumpAt(tester, const Size(400, 850));
+    expect(find.byType(BottomNavigationBar), findsOneWidget);
+    expect(find.byType(NavigationRail), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('En una ventana ancha la navegación va al costado', (tester) async {
+    await pumpAt(tester, const Size(1200, 800));
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(BottomNavigationBar), findsNothing);
+    // Ajustes está en el menú lateral.
+    expect(find.byTooltip('Ajustes'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

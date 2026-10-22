@@ -15,6 +15,7 @@ import 'lyrics_screen.dart';
 import 'playlist_screen.dart';
 import 'stats_screen.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 enum _DownloadsFilterMode { all, album, playlists }
 
@@ -305,155 +306,157 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Descargas'),
-        actions: [
-          IconButton(
-            tooltip: 'Estadísticas',
-            icon: const Icon(Icons.insights_rounded),
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const StatsScreen()),
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Descargas'),
+          actions: [
+            IconButton(
+              tooltip: 'Estadísticas',
+              icon: const Icon(Icons.insights_rounded),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const StatsScreen()),
+              ),
             ),
-          ),
-          if (_busy)
-            const Padding(
-              padding: EdgeInsets.all(14),
-              child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
-            )
-          else
-            PopupMenuButton<String>(
-              onSelected: (v) {
-                if (v == 'export') _export();
-                if (v == 'import') _import();
-              },
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'export', child: Text('Exportar todo (ZIP)')),
-                PopupMenuItem(value: 'import', child: Text('Importar desde ZIP')),
-              ],
-            ),
-        ],
-      ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _downloads.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.all(14),
+                child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+              )
+            else
+              PopupMenuButton<String>(
+                onSelected: (v) {
+                  if (v == 'export') _export();
+                  if (v == 'import') _import();
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'export', child: Text('Exportar todo (ZIP)')),
+                  PopupMenuItem(value: 'import', child: Text('Importar desde ZIP')),
+                ],
+              ),
+          ],
+        ),
+        body: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _downloads.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Todavía no descargaste ninguna letra.',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: _busy ? null : _import,
+                          icon: const Icon(Icons.unarchive_rounded),
+                          label: const Text('Importar una copia de seguridad'),
+                        ),
+                      ],
+                    ),
+                  )
+                : Column(
                     children: [
-                      const Text(
-                        'Todavía no descargaste ninguna letra.',
-                        style: TextStyle(color: AppTheme.textSecondary),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                        child: TextField(
+                          controller: _searchController,
+                          onChanged: _onQueryChanged,
+                          decoration: InputDecoration(
+                            hintText: 'Título, artista o parte de la letra',
+                            prefixIcon: const Icon(Icons.search_rounded),
+                            suffixIcon: _query.isEmpty
+                                ? null
+                                : IconButton(
+                                    icon: const Icon(Icons.close_rounded),
+                                    onPressed: () {
+                                      _searchController.clear();
+                                      _onQueryChanged('');
+                                    },
+                                  ),
+                          ),
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      TextButton.icon(
-                        onPressed: _busy ? null : _import,
-                        icon: const Icon(Icons.unarchive_rounded),
-                        label: const Text('Importar una copia de seguridad'),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                        child: Row(
+                          children: [
+                            ChoiceChip(
+                              label: const Text('Todo'),
+                              selected: _mode == _DownloadsFilterMode.all,
+                              onSelected: (_) =>
+                                  setState(() => _mode = _DownloadsFilterMode.all),
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              label: const Text('Por álbum'),
+                              selected: _mode == _DownloadsFilterMode.album,
+                              onSelected: (_) =>
+                                  setState(() => _mode = _DownloadsFilterMode.album),
+                            ),
+                            const SizedBox(width: 8),
+                            ChoiceChip(
+                              label: const Text('Playlists'),
+                              selected: _mode == _DownloadsFilterMode.playlists,
+                              onSelected: (_) =>
+                                  setState(() => _mode = _DownloadsFilterMode.playlists),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: _load,
+                          child: _mode == _DownloadsFilterMode.playlists
+                              ? _buildPlaylists()
+                              : _filtered.isEmpty
+                              ? ListView(
+                                  children: const [
+                                    Padding(
+                                      padding: EdgeInsets.only(top: 60),
+                                      child: Center(
+                                        child: Text(
+                                          'No se encontraron letras con ese filtro.',
+                                          style: TextStyle(color: AppTheme.textSecondary),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : _mode == _DownloadsFilterMode.all
+                                  ? ListView.builder(
+                                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                                      itemCount: _filtered.length,
+                                      itemBuilder: (context, index) =>
+                                          _buildSongTile(_filtered[index]),
+                                    )
+                                  : ListView(
+                                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                                      children: [
+                                        for (final group in _groupedByAlbum) ...[
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(vertical: 8),
+                                            child: Text(
+                                              group.key.toUpperCase(),
+                                              style: const TextStyle(
+                                                color: AppTheme.textSecondary,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                                letterSpacing: 0.5,
+                                              ),
+                                            ),
+                                          ),
+                                          for (final result in group.value)
+                                            _buildSongTile(result),
+                                        ],
+                                      ],
+                                    ),
+                        ),
                       ),
                     ],
                   ),
-                )
-              : Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-                      child: TextField(
-                        controller: _searchController,
-                        onChanged: _onQueryChanged,
-                        decoration: InputDecoration(
-                          hintText: 'Título, artista o parte de la letra',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          suffixIcon: _query.isEmpty
-                              ? null
-                              : IconButton(
-                                  icon: const Icon(Icons.close_rounded),
-                                  onPressed: () {
-                                    _searchController.clear();
-                                    _onQueryChanged('');
-                                  },
-                                ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                      child: Row(
-                        children: [
-                          ChoiceChip(
-                            label: const Text('Todo'),
-                            selected: _mode == _DownloadsFilterMode.all,
-                            onSelected: (_) =>
-                                setState(() => _mode = _DownloadsFilterMode.all),
-                          ),
-                          const SizedBox(width: 8),
-                          ChoiceChip(
-                            label: const Text('Por álbum'),
-                            selected: _mode == _DownloadsFilterMode.album,
-                            onSelected: (_) =>
-                                setState(() => _mode = _DownloadsFilterMode.album),
-                          ),
-                          const SizedBox(width: 8),
-                          ChoiceChip(
-                            label: const Text('Playlists'),
-                            selected: _mode == _DownloadsFilterMode.playlists,
-                            onSelected: (_) =>
-                                setState(() => _mode = _DownloadsFilterMode.playlists),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: _load,
-                        child: _mode == _DownloadsFilterMode.playlists
-                            ? _buildPlaylists()
-                            : _filtered.isEmpty
-                            ? ListView(
-                                children: const [
-                                  Padding(
-                                    padding: EdgeInsets.only(top: 60),
-                                    child: Center(
-                                      child: Text(
-                                        'No se encontraron letras con ese filtro.',
-                                        style: TextStyle(color: AppTheme.textSecondary),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              )
-                            : _mode == _DownloadsFilterMode.all
-                                ? ListView.builder(
-                                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                                    itemCount: _filtered.length,
-                                    itemBuilder: (context, index) =>
-                                        _buildSongTile(_filtered[index]),
-                                  )
-                                : ListView(
-                                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                                    children: [
-                                      for (final group in _groupedByAlbum) ...[
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(vertical: 8),
-                                          child: Text(
-                                            group.key.toUpperCase(),
-                                            style: const TextStyle(
-                                              color: AppTheme.textSecondary,
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                              letterSpacing: 0.5,
-                                            ),
-                                          ),
-                                        ),
-                                        for (final result in group.value)
-                                          _buildSongTile(result),
-                                      ],
-                                    ],
-                                  ),
-                      ),
-                    ),
-                  ],
-                ),
+      ),
     );
   }
 }

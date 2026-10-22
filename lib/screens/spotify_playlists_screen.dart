@@ -6,6 +6,7 @@ import '../services/spotify_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/cached_artwork.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 /// Tus playlists de Spotify: bajar todas las letras de una de una vez, o
 /// marcarla para que las canciones nuevas se bajen solas.
@@ -129,123 +130,125 @@ class _SpotifyPlaylistsScreenState extends ConsumerState<SpotifyPlaylistsScreen>
   @override
   Widget build(BuildContext context) {
     final lists = _playlists;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Playlists de Spotify')),
-      body: _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(_error!, textAlign: TextAlign.center,
-                        style: const TextStyle(color: AppTheme.textSecondary)),
-                    const SizedBox(height: 16),
-                    if (_needsReconnect)
-                      ElevatedButton(onPressed: _reconnect, child: const Text('Reconectar Spotify'))
-                    else
-                      OutlinedButton(onPressed: _load, child: const Text('Reintentar')),
-                  ],
-                ),
-              ),
-            )
-          : lists == null
-              ? const Center(child: CircularProgressIndicator())
-              : RefreshIndicator(
-                  onRefresh: _load,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
-                    itemCount: lists.length + 1,
-                    itemBuilder: (context, i) {
-                      if (i == 0) {
-                        return const Padding(
-                          padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
-                          child: Text(
-                            'Con "automático", las canciones que se agreguen a esa playlist '
-                            'se descargan solas cada vez que abres la app.',
-                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                          ),
-                        );
-                      }
-                      final p = lists[i - 1];
-                      final downloading = _downloadingId == p.id;
-                      return Card(
-                        color: AppTheme.surface,
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
-                                      width: 56,
-                                      height: 56,
-                                      child: p.imageUrl == null
-                                          ? const ColoredBox(
-                                              color: Colors.white10,
-                                              child: Icon(Icons.queue_music_rounded),
-                                            )
-                                          : CachedArtwork(url: p.imageUrl!, size: 56),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(fontWeight: FontWeight.w700)),
-                                        Text(
-                                          '${p.trackCount} canciones · ${p.owner}',
-                                          style: const TextStyle(
-                                              color: AppTheme.textSecondary, fontSize: 12),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              if (downloading) ...[
-                                LinearProgressIndicator(value: _total == 0 ? null : _done / _total),
-                                Row(
-                                  children: [
-                                    Text('Descargando $_done / $_total',
-                                        style: const TextStyle(color: AppTheme.textSecondary)),
-                                    const Spacer(),
-                                    TextButton(
-                                      onPressed: () => setState(() => _cancel = true),
-                                      child: const Text('Cancelar'),
-                                    ),
-                                  ],
-                                ),
-                              ] else
-                                Row(
-                                  children: [
-                                    TextButton.icon(
-                                      onPressed:
-                                          _downloadingId == null ? () => _downloadAll(p) : null,
-                                      icon: const Icon(Icons.download_rounded),
-                                      label: const Text('Descargar todas'),
-                                    ),
-                                    const Spacer(),
-                                    const Text('Automático'),
-                                    Switch(
-                                      value: _auto.contains(p.id),
-                                      onChanged: (v) => _toggleAuto(p, v),
-                                    ),
-                                  ],
-                                ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Playlists de Spotify')),
+        body: _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(_error!, textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppTheme.textSecondary)),
+                      const SizedBox(height: 16),
+                      if (_needsReconnect)
+                        ElevatedButton(onPressed: _reconnect, child: const Text('Reconectar Spotify'))
+                      else
+                        OutlinedButton(onPressed: _load, child: const Text('Reintentar')),
+                    ],
                   ),
                 ),
+              )
+            : lists == null
+                ? const Center(child: CircularProgressIndicator())
+                : RefreshIndicator(
+                    onRefresh: _load,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+                      itemCount: lists.length + 1,
+                      itemBuilder: (context, i) {
+                        if (i == 0) {
+                          return const Padding(
+                            padding: EdgeInsets.fromLTRB(4, 0, 4, 12),
+                            child: Text(
+                              'Con "automático", las canciones que se agreguen a esa playlist '
+                              'se descargan solas cada vez que abres la app.',
+                              style: TextStyle(color: AppTheme.textSecondary, fontSize: 13),
+                            ),
+                          );
+                        }
+                        final p = lists[i - 1];
+                        final downloading = _downloadingId == p.id;
+                        return Card(
+                          color: AppTheme.surface,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: SizedBox(
+                                        width: 56,
+                                        height: 56,
+                                        child: p.imageUrl == null
+                                            ? const ColoredBox(
+                                                color: Colors.white10,
+                                                child: Icon(Icons.queue_music_rounded),
+                                              )
+                                            : CachedArtwork(url: p.imageUrl!, size: 56),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(fontWeight: FontWeight.w700)),
+                                          Text(
+                                            '${p.trackCount} canciones · ${p.owner}',
+                                            style: const TextStyle(
+                                                color: AppTheme.textSecondary, fontSize: 12),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                if (downloading) ...[
+                                  LinearProgressIndicator(value: _total == 0 ? null : _done / _total),
+                                  Row(
+                                    children: [
+                                      Text('Descargando $_done / $_total',
+                                          style: const TextStyle(color: AppTheme.textSecondary)),
+                                      const Spacer(),
+                                      TextButton(
+                                        onPressed: () => setState(() => _cancel = true),
+                                        child: const Text('Cancelar'),
+                                      ),
+                                    ],
+                                  ),
+                                ] else
+                                  Row(
+                                    children: [
+                                      TextButton.icon(
+                                        onPressed:
+                                            _downloadingId == null ? () => _downloadAll(p) : null,
+                                        icon: const Icon(Icons.download_rounded),
+                                        label: const Text('Descargar todas'),
+                                      ),
+                                      const Spacer(),
+                                      const Text('Automático'),
+                                      Switch(
+                                        value: _auto.contains(p.id),
+                                        onChanged: (v) => _toggleAuto(p, v),
+                                      ),
+                                    ],
+                                  ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+      ),
     );
   }
 }

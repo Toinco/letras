@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../services/stats_service.dart';
 import '../theme/app_theme.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 enum _Range { week, month, year, all }
 
@@ -71,82 +72,84 @@ class _StatsScreenState extends ConsumerState<StatsScreen> {
   Widget build(BuildContext context) {
     final data = _data;
     final accent = Theme.of(context).colorScheme.primary;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Estadísticas'),
-        actions: [
-          IconButton(
-            tooltip: 'Borrar estadísticas',
-            icon: const Icon(Icons.delete_sweep_rounded),
-            onPressed: _clear,
-          ),
-        ],
-      ),
-      body: data == null
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-              children: [
-                SegmentedButton<_Range>(
-                  segments: const [
-                    ButtonSegment(value: _Range.week, label: Text('7 días')),
-                    ButtonSegment(value: _Range.month, label: Text('30 días')),
-                    ButtonSegment(value: _Range.year, label: Text('Año')),
-                    ButtonSegment(value: _Range.all, label: Text('Todo')),
-                  ],
-                  selected: {_range},
-                  onSelectionChanged: (s) {
-                    setState(() => _range = s.first);
-                    _load();
-                  },
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    _Tile(value: formatTime(data.lyricsTime), label: 'de letras vistas'),
-                    const SizedBox(width: 10),
-                    _Tile(value: '${data.totalPlays}', label: 'reproducciones'),
-                    const SizedBox(width: 10),
-                    _Tile(value: '${data.distinctSongs}', label: 'canciones'),
-                  ],
-                ),
-                if (data.totalPlays == 0)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 40),
-                    child: Text(
-                      'Todavía no hay nada en este período. Las canciones que suenan con '
-                      'letra en "Reproduciendo" se cuentan solas.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ),
-                if (data.topSongs.isNotEmpty) ...[
-                  const SizedBox(height: 28),
-                  const _Header('CANCIONES MÁS ESCUCHADAS'),
-                  for (var i = 0; i < data.topSongs.length; i++)
-                    _RankRow(
-                      rank: i + 1,
-                      title: data.topSongs[i].title,
-                      subtitle: data.topSongs[i].artist,
-                      value: '${data.topSongs[i].plays}×',
-                      fraction: data.topSongs[i].plays / data.topSongs.first.plays,
-                      color: accent,
-                    ),
-                ],
-                if (data.topArtists.isNotEmpty) ...[
-                  const SizedBox(height: 28),
-                  const _Header('ARTISTAS'),
-                  for (var i = 0; i < data.topArtists.length; i++)
-                    _RankRow(
-                      rank: i + 1,
-                      title: data.topArtists[i].artist,
-                      value: '${data.topArtists[i].plays}×',
-                      fraction: data.topArtists[i].plays / data.topArtists.first.plays,
-                      color: accent,
-                    ),
-                ],
-              ],
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Estadísticas'),
+          actions: [
+            IconButton(
+              tooltip: 'Borrar estadísticas',
+              icon: const Icon(Icons.delete_sweep_rounded),
+              onPressed: _clear,
             ),
+          ],
+        ),
+        body: data == null
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+                children: [
+                  SegmentedButton<_Range>(
+                    segments: const [
+                      ButtonSegment(value: _Range.week, label: Text('7 días')),
+                      ButtonSegment(value: _Range.month, label: Text('30 días')),
+                      ButtonSegment(value: _Range.year, label: Text('Año')),
+                      ButtonSegment(value: _Range.all, label: Text('Todo')),
+                    ],
+                    selected: {_range},
+                    onSelectionChanged: (s) {
+                      setState(() => _range = s.first);
+                      _load();
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      _Tile(value: formatTime(data.lyricsTime), label: 'de letras vistas'),
+                      const SizedBox(width: 10),
+                      _Tile(value: '${data.totalPlays}', label: 'reproducciones'),
+                      const SizedBox(width: 10),
+                      _Tile(value: '${data.distinctSongs}', label: 'canciones'),
+                    ],
+                  ),
+                  if (data.totalPlays == 0)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 40),
+                      child: Text(
+                        'Todavía no hay nada en este período. Las canciones que suenan con '
+                        'letra en "Reproduciendo" se cuentan solas.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    ),
+                  if (data.topSongs.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    const _Header('CANCIONES MÁS ESCUCHADAS'),
+                    for (var i = 0; i < data.topSongs.length; i++)
+                      _RankRow(
+                        rank: i + 1,
+                        title: data.topSongs[i].title,
+                        subtitle: data.topSongs[i].artist,
+                        value: '${data.topSongs[i].plays}×',
+                        fraction: data.topSongs[i].plays / data.topSongs.first.plays,
+                        color: accent,
+                      ),
+                  ],
+                  if (data.topArtists.isNotEmpty) ...[
+                    const SizedBox(height: 28),
+                    const _Header('ARTISTAS'),
+                    for (var i = 0; i < data.topArtists.length; i++)
+                      _RankRow(
+                        rank: i + 1,
+                        title: data.topArtists[i].artist,
+                        value: '${data.topArtists[i].plays}×',
+                        fraction: data.topArtists[i].plays / data.topArtists.first.plays,
+                        color: accent,
+                      ),
+                  ],
+                ],
+              ),
+      ),
     );
   }
 }

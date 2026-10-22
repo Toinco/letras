@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -13,6 +14,7 @@ import '../services/now_playing_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/artwork_thumb.dart';
+import '../widgets/desktop.dart';
 import '../widgets/lyrics_picker_sheet.dart';
 import '../widgets/song_actions_sheet.dart';
 import '../widgets/synced_lyrics_view.dart';
@@ -196,7 +198,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   }
 
   void _showOffsetSheet() {
-    showModalBottomSheet(
+    showAdaptiveSheet(
       context: context,
       backgroundColor: AppTheme.surface,
       shape: const RoundedRectangleBorder(
@@ -263,7 +265,8 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   Widget build(BuildContext context) {
     final c = ref.watch(nowPlayingControllerProvider);
     final track = c.track;
-    final landscape = MediaQuery.of(context).orientation == Orientation.landscape;
+    final landscape =
+        MediaQuery.of(context).orientation == Orientation.landscape || isWideLayout(context);
     final showArtBackground = (c.accessGranted || c.continuousMic) && track != null;
 
     return Scaffold(
@@ -279,7 +282,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (showArtBackground) _ArtBackground(bytes: track.albumArt),
+          // Recortado: la carátula agrandada y difuminada no puede pintar
+          // encima del menú lateral.
+          if (showArtBackground) ClipRect(child: _ArtBackground(bytes: track.albumArt)),
           SafeArea(
             child: c.checkingPermission
                 ? const Center(child: CircularProgressIndicator())
@@ -696,64 +701,112 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  /// Diseño horizontal tipo Apple Music: carátula + controles a la
-  /// izquierda, letra a la derecha, con fondo difuminado.
+  /// Diseño horizontal tipo Apple Music (teléfono acostado, o la Mac):
+  /// carátula grande con título y controles debajo, todo centrado a la
+  /// izquierda, y la letra a la derecha sobre el fondo difuminado.
   Widget _buildLandscapeContent(NowPlayingController c, NowPlayingTrack track) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        SizedBox(
-          width: 320,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 20, 12),
-            child: Column(
-              children: [
-                Expanded(
-                  child: Center(
-                    child: GestureDetector(
-                      onTap: () => _openSongMenu(track),
-                      child: ArtworkThumb(
-                        title: track.title,
-                        artist: track.artist,
-                        bytes: track.albumArt,
-                        size: 220,
-                        borderRadius: 14,
+    return LayoutBuilder(builder: (context, box) {
+      final roomy = box.maxWidth >= 900;
+      final panelWidth = (box.maxWidth * 0.38).clamp(300.0, 480.0);
+      // La carátula crece con la ventana, pero deja lugar para título y controles.
+      final artSize = math.min(panelWidth - 64, box.maxHeight - 250).clamp(110.0, 420.0);
+      final columnWidth = math.max(artSize, 280.0);
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: panelWidth,
+            child: Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(roomy ? 40 : 24, 12, roomy ? 24 : 16, 12),
+                child: SizedBox(
+                  width: columnWidth,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: () => _openSongMenu(track),
+                          child: _CoverArt(track: track, size: artSize),
+                        ),
                       ),
-                    ),
+                      SizedBox(height: roomy ? 28 : 16),
+                      Row(
+                        children: [
+                          Expanded(child: _TrackTitle(track: track, large: roomy)),
+                          IconButton(
+                            tooltip: c.saved ? 'Ya descargada' : 'Descargar letra',
+                            icon: c.saving
+                                ? _spinner()
+                                : Icon(
+                                    c.saved ? Icons.download_done_rounded : Icons.download_rounded,
+                                    color: Colors.white70,
+                                  ),
+                            onPressed: (c.lyrics == null || c.saved || c.saving)
+                                ? null
+                                : () => c.download(),
+                          ),
+                          _buildAppBarActions(c).last, // micrófono
+                          IconButton(
+                            tooltip: 'Más opciones',
+                            icon: const Icon(Icons.more_horiz_rounded, color: Colors.white70),
+                            onPressed: () => _openSongMenu(track),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      _buildTransport(c, track, compact: false),
+                      if (track.players.length > 1 && !track.fromMicrophone) ...[
+                        const SizedBox(height: 8),
+                        _buildPlayerChooser(c, track),
+                      ],
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(child: _TrackTitle(track: track)),
-                    if (c.lyrics?.hasSyncedLyrics ?? false)
-                      IconButton(
-                        tooltip: 'Modo karaoke',
-                        icon: const Icon(Icons.tv_rounded, color: Colors.white),
-                        onPressed: _openKaraoke,
-                      ),
-                    IconButton(
-                      tooltip: c.saved ? 'Ya descargada' : 'Descargar letra',
-                      icon: Icon(
-                        c.saved ? Icons.download_done_rounded : Icons.download_rounded,
-                        color: Colors.white,
-                      ),
-                      onPressed: (c.lyrics == null || c.saved) ? null : () => c.download(),
-                    ),
-                  ],
-                ),
-                _buildTransport(c, track, compact: false),
-              ],
+              ),
             ),
           ),
-        ),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 12, right: 8),
-            child: _buildLyricsArea(c, compact: true),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: roomy ? 32 : 8),
+              child: _buildLyricsArea(c, compact: true),
+            ),
           ),
+        ],
+      );
+    });
+  }
+}
+
+/// Carátula grande con sombra, que cambia con un fundido.
+class _CoverArt extends StatelessWidget {
+  final NowPlayingTrack track;
+  final double size;
+
+  const _CoverArt({required this.track, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = size >= 240 ? 14.0 : 10.0;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 40, offset: Offset(0, 18)),
+        ],
+      ),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 400),
+        child: ArtworkThumb(
+          key: ValueKey('${track.title}|${track.artist}'),
+          title: track.title,
+          artist: track.artist,
+          bytes: track.albumArt,
+          size: size,
+          borderRadius: radius,
         ),
-      ],
+      ),
     );
   }
 }
@@ -833,8 +886,9 @@ class _OffsetRow extends StatelessWidget {
 /// Título + artista + de dónde viene ("en Spotify", "por el micrófono").
 class _TrackTitle extends StatelessWidget {
   final NowPlayingTrack track;
+  final bool large;
 
-  const _TrackTitle({required this.track});
+  const _TrackTitle({required this.track, this.large = false});
 
   @override
   Widget build(BuildContext context) {
@@ -847,7 +901,12 @@ class _TrackTitle extends StatelessWidget {
           track.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Colors.white),
+          style: TextStyle(
+            fontSize: large ? 22 : 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: large ? -0.3 : 0,
+            color: Colors.white,
+          ),
         ),
         const SizedBox(height: 2),
         Text(
@@ -856,7 +915,7 @@ class _TrackTitle extends StatelessWidget {
               : '${track.artist} · ${track.fromMicrophone ? 'por' : 'en'} $source',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 14, color: Colors.white70),
+          style: TextStyle(fontSize: large ? 15 : 14, color: Colors.white70),
         ),
       ],
     );
@@ -907,9 +966,11 @@ class _ArtBackground extends StatelessWidget {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black.withValues(alpha: 0.35),
-                        Colors.black.withValues(alpha: 0.55),
-                        Colors.black.withValues(alpha: 0.75),
+                        // Un poco más oscuro: con carátulas claras la letra
+                        // de las líneas apagadas casi no se leía.
+                        Colors.black.withValues(alpha: 0.45),
+                        Colors.black.withValues(alpha: 0.6),
+                        Colors.black.withValues(alpha: 0.78),
                       ],
                     ),
                   ),

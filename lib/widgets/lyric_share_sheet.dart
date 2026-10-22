@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../models/song.dart';
 import '../theme/app_theme.dart';
+import 'desktop.dart';
 
 /// Hoja para compartir líneas de una letra, estilo "compartir letra" de
 /// Spotify: eliges una o varias líneas seguidas y las copias, las mandas
@@ -20,7 +21,7 @@ Future<void> showLyricShareSheet(
   Song? song,
   Uint8List? artworkBytes,
 }) {
-  return showModalBottomSheet(
+  return showAdaptiveSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: AppTheme.surface,
@@ -126,14 +127,7 @@ class _LyricShareSheetState extends State<_LyricShareSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const SizedBox(height: 10),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.white24,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+            const SheetHandle(),
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 14, 20, 4),
               child: Text(

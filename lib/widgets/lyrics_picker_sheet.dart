@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/lyrics_result.dart';
 import '../theme/app_theme.dart';
 import '../providers.dart';
+import 'desktop.dart';
 
 /// "¿Letra equivocada?": deja corregir título/artista y elegir a mano entre
 /// todos los resultados de LRCLIB. Devuelve la letra elegida (o `null`).
@@ -13,7 +14,7 @@ Future<LyricsResult?> showLyricsPicker(
   required String artist,
   int? durationSeconds,
 }) {
-  return showModalBottomSheet<LyricsResult>(
+  return showAdaptiveSheet<LyricsResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: AppTheme.surface,
@@ -115,16 +116,7 @@ class _LyricsPickerState extends ConsumerState<_LyricsPicker> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 10),
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
+              const Center(child: SheetHandle()),
               const Padding(
                 padding: EdgeInsets.fromLTRB(20, 14, 20, 10),
                 child: Text(

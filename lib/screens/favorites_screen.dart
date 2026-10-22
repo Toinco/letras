@@ -9,6 +9,7 @@ import '../widgets/song_card.dart';
 import 'lyrics_screen.dart';
 import 'settings_screen.dart';
 import '../providers.dart';
+import '../widgets/desktop.dart';
 
 /// Canciones que el usuario le dio "me gusta" en Spotify, con acceso
 /// rápido para ver o descargar la letra de cada una (o de todas).
@@ -361,23 +362,25 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Favoritos'),
-        actions: [
-          if (_connected)
-            IconButton(
-              tooltip: 'Desconectar Spotify',
-              icon: const Icon(Icons.link_off_rounded),
-              onPressed: _disconnect,
-            ),
-        ],
+    return ReadableFrame(
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Favoritos'),
+          actions: [
+            if (_connected)
+              IconButton(
+                tooltip: 'Desconectar Spotify',
+                icon: const Icon(Icons.link_off_rounded),
+                onPressed: _disconnect,
+              ),
+          ],
+        ),
+        body: _checking
+            ? const Center(child: CircularProgressIndicator())
+            : !_connected
+                ? _buildConnectPrompt()
+                : _buildLibrary(),
       ),
-      body: _checking
-          ? const Center(child: CircularProgressIndicator())
-          : !_connected
-              ? _buildConnectPrompt()
-              : _buildLibrary(),
     );
   }
 

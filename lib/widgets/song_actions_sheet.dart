@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/song.dart';
 import '../theme/app_theme.dart';
 import 'artwork_thumb.dart';
+import 'desktop.dart';
 
 /// Acción extra para la hoja de una canción.
 class SongSheetAction {
@@ -24,7 +25,7 @@ Future<void> showSongActionsSheet(
   Future<void> Function()? onDownload,
   List<SongSheetAction> extraActions = const [],
 }) {
-  return showModalBottomSheet(
+  return showAdaptiveSheet(
     context: context,
     backgroundColor: AppTheme.surface,
     shape: const RoundedRectangleBorder(
@@ -37,14 +38,7 @@ Future<void> showSongActionsSheet(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
+              const SheetHandle(),
               const SizedBox(height: 18),
               Row(
                 children: [

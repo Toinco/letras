@@ -5,6 +5,7 @@ import '../models/lyrics_result.dart';
 import '../services/playlist_service.dart';
 import '../theme/app_theme.dart';
 import '../providers.dart';
+import 'desktop.dart';
 
 /// Pide un nombre (para crear o renombrar una playlist).
 Future<String?> askPlaylistName(BuildContext context, {String initial = ''}) {
@@ -33,7 +34,7 @@ Future<String?> askPlaylistName(BuildContext context, {String initial = ''}) {
 
 /// Hoja para agregar/sacar una letra de las playlists (con casillas).
 Future<void> showAddToPlaylistSheet(BuildContext context, LyricsResult song) {
-  return showModalBottomSheet(
+  return showAdaptiveSheet(
     context: context,
     backgroundColor: AppTheme.surface,
     isScrollControlled: true,
