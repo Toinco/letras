@@ -18,6 +18,13 @@ class KaraokeScreen extends StatefulWidget {
   final bool showTranslation;
   final Uint8List? artworkBytes;
 
+  /// Si vienen, el karaoke no se queda con la foto del momento en que se
+  /// abrió: cada vez que [updates] avisa, vuelve a leer [liveContent] (así
+  /// aparece la traducción que llega después, o la letra de la canción
+  /// siguiente).
+  final Listenable? updates;
+  final KaraokeContent Function()? liveContent;
+
   const KaraokeScreen({
     super.key,
     required this.lyrics,
@@ -26,6 +33,8 @@ class KaraokeScreen extends StatefulWidget {
     this.translatedLines,
     this.showTranslation = false,
     this.artworkBytes,
+    this.updates,
+    this.liveContent,
   });
 
   @override
@@ -94,17 +103,29 @@ class _KaraokeScreenState extends State<KaraokeScreen> {
               ),
             ),
             SafeArea(
-              child: SyncedLyricsView(
-                lines: widget.lyrics.syncedLyrics,
-                position: widget.position,
-                plainLyricsFallback: widget.lyrics.plainLyrics,
-                offset: widget.offset,
-                translatedLines: widget.translatedLines,
-                showTranslation: widget.showTranslation,
-                song: widget.lyrics.song,
-                artworkBytes: widget.artworkBytes,
-                focusMode: true,
-                showSearchButton: false,
+              child: ListenableBuilder(
+                listenable: widget.updates ?? const _NoUpdates(),
+                builder: (context, _) {
+                  final content = widget.liveContent?.call() ??
+                      KaraokeContent(
+                        lyrics: widget.lyrics,
+                        translatedLines: widget.translatedLines,
+                        showTranslation: widget.showTranslation,
+                        offset: widget.offset,
+                      );
+                  return SyncedLyricsView(
+                    lines: content.lyrics.syncedLyrics,
+                    position: widget.position,
+                    plainLyricsFallback: content.lyrics.plainLyrics,
+                    offset: content.offset,
+                    translatedLines: content.translatedLines,
+                    showTranslation: content.showTranslation,
+                    song: content.lyrics.song,
+                    artworkBytes: widget.artworkBytes,
+                    focusMode: true,
+                    showSearchButton: false,
+                  );
+                },
               ),
             ),
             Positioned(
@@ -130,4 +151,29 @@ class _KaraokeScreenState extends State<KaraokeScreen> {
       ),
     );
   }
+}
+
+/// Lo que muestra el karaoke en un momento dado.
+class KaraokeContent {
+  final LyricsResult lyrics;
+  final List<String>? translatedLines;
+  final bool showTranslation;
+  final Duration offset;
+
+  const KaraokeContent({
+    required this.lyrics,
+    this.translatedLines,
+    this.showTranslation = false,
+    this.offset = Duration.zero,
+  });
+}
+
+class _NoUpdates implements Listenable {
+  const _NoUpdates();
+
+  @override
+  void addListener(VoidCallback listener) {}
+
+  @override
+  void removeListener(VoidCallback listener) {}
 }

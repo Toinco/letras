@@ -55,6 +55,8 @@ void main() {
     SettingsService.extraSources.value = true;
     SettingsService.aiTranslation.value = false;
     SettingsService.translationLang.value = 'es';
+    TranslationService.resetForTests();
+    TranslationService.defaultDiskCache = MemoryTranslationDiskCache();
   });
 
   tearDown(() => AppHttp.client = http.Client());
@@ -326,9 +328,28 @@ void main() {
   });
 
   group('Traducción', () {
-    test('Google: alinea las líneas y respeta el idioma elegido', () async {
+    test('Google por lotes: una línea por q, alineadas, en un solo pedido', () async {
+      final calls = <http.Request>[];
+      AppHttp.client = MockClient((req) async {
+        calls.add(req);
+        return _json([
+          ['Hello', 'es'],
+          ['', 'es'],
+          ['world', 'es'],
+        ]);
+      });
+      final out = await TranslationService().translate(['Hola', '', 'mundo'], target: 'en');
+      expect(out, ['Hello', '', 'world']);
+      expect(calls, hasLength(1));
+      expect(calls.single.url.path, '/translate_a/t');
+      expect(calls.single.url.queryParameters['tl'], 'en');
+      expect(calls.single.body, 'q=Hola&q=&q=mundo');
+    });
+
+    test('Google: si el pedido por lotes falla, usa el de respaldo', () async {
       Uri? called;
       AppHttp.client = MockClient((req) async {
+        if (req.url.path == '/translate_a/t') return http.Response('no', 503);
         called = req.url;
         return _json([
           [

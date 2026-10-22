@@ -196,6 +196,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           translatedLines: c.translatedLines,
           showTranslation: c.showTranslation,
           artworkBytes: track.albumArt,
+          // Se actualiza solo: la traducción que llega después, otra
+          // canción, el desfase...
+          updates: c,
+          liveContent: () => KaraokeContent(
+            lyrics: c.lyrics ?? lyrics,
+            translatedLines: c.translatedLines,
+            showTranslation: c.showTranslation,
+            offset: c.offset,
+          ),
         ),
       ),
     );
@@ -397,7 +406,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
           icon: c.translating
               ? _spinner()
               : Icon(Icons.translate_rounded, color: c.showTranslation ? accent : null),
-          onPressed: c.translating ? null : c.toggleTranslation,
+          // Se puede apagar/prender aunque esté cargando: la letra original
+          // se ve igual mientras tanto.
+          onPressed: c.toggleTranslation,
         ),
       if (hasLyrics)
         IconButton(
@@ -766,7 +777,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                   Icons.translate_rounded,
                   color: c.showTranslation ? accent : Colors.white54,
                 ),
-                onPressed: hasSynced && !c.translating ? c.toggleTranslation : null,
+                onPressed: hasSynced ? c.toggleTranslation : null,
               ),
             ],
           ),

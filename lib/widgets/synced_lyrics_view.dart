@@ -183,8 +183,16 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
   List<LinePresentation?> _presentations = [];
   bool _presentationsSplit = true;
 
-  bool get _translationActive =>
-      widget.showTranslation && (widget.translatedLines?.isNotEmpty ?? false);
+  /// Solo se muestra una traducción con exactamente una entrada por línea:
+  /// así cada traducción va debajo de su línea y con sus mismos tiempos. Si
+  /// no coincide (por ejemplo, una traducción vieja de una letra que después
+  /// se editó), es mejor no mostrarla que mostrarla corrida.
+  static bool _isActive(SyncedLyricsView w) =>
+      w.showTranslation &&
+      (w.translatedLines?.isNotEmpty ?? false) &&
+      w.translatedLines!.length == w.lines.length;
+
+  bool get _translationActive => _isActive(widget);
 
   bool get _hasIntro =>
       widget.lines.isNotEmpty && widget.lines.first.timestamp > const Duration(seconds: 3);
@@ -260,9 +268,8 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
 
     // Cambia el alto de las líneas (traducción on/off) o el desfase:
     // reubicamos sin animación para que la línea actual siga en su lugar.
-    final oldTranslationActive =
-        oldWidget.showTranslation && (oldWidget.translatedLines?.isNotEmpty ?? false);
-    if (oldTranslationActive != _translationActive ||
+    if (_isActive(oldWidget) != _translationActive ||
+        oldWidget.translatedLines != widget.translatedLines ||
         oldWidget.romanizedLines != widget.romanizedLines ||
         oldWidget.focusMode != widget.focusMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent(animate: false));
@@ -707,7 +714,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
         : '';
     final romanized = SettingsService.showRomanization.value &&
             widget.romanizedLines != null &&
-            index < widget.romanizedLines!.length
+            widget.romanizedLines!.length == widget.lines.length
         ? widget.romanizedLines![index]
         : '';
 

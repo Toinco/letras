@@ -8,6 +8,7 @@ import '../models/song.dart';
 import '../services/accent_controller.dart';
 import '../services/artwork_service.dart';
 import '../services/audio_recognition_service.dart';
+import '../services/error_log.dart';
 import '../services/history_service.dart';
 import '../services/lyrics_finder.dart';
 import '../services/lyrics_storage_service.dart';
@@ -88,9 +89,23 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
   Duration get appOffset => SettingsService.appOffsetFor(track?.packageName);
 
   bool showTranslation = false;
+
+  /// Traducción de la letra actual: misma cantidad y orden que
+  /// `lyrics.syncedLyrics`, así cada traducción usa exactamente los tiempos
+  /// de su línea original.
   List<String>? translatedLines;
+
+  /// La traducción que se ve es la automática y todavía se espera la de la
+  /// IA (que la va a reemplazar).
+  bool translationProvisional = false;
   List<String>? romanizedLines;
   bool translating = false;
+
+  TranslationCancelToken? _translationCancel;
+  TranslationCancelToken? _romanCancel;
+  Future<List<String>?>? _translationFuture;
+  Timer? _translationRetry;
+  int _translationRetries = 0;
 
   bool recognizing = false;
   bool continuousMic = false;
@@ -167,6 +182,7 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     _resyncTimer?.cancel();
     _statsTimer?.cancel();
     _lyricsDebounce?.cancel();
+    _resetTranslation();
     _micSleep?.complete();
     _positionController.close();
     _messages.close();
@@ -248,6 +264,7 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     } else if (t == null) {
       _lyricsDebounce?.cancel();
       lyrics = null;
+      _resetTranslation();
       lyricsError = null;
       _playId = null;
       nowPlaying.clearLiveLyrics();
@@ -266,8 +283,7 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     lyricsError = null;
     lyrics = null;
     saved = false;
-    translatedLines = null;
-    romanizedLines = null;
+    _resetTranslation();
     _notify();
     settings.getSyncOffset(t.title, t.artist).then((o) {
       if (!_disposed && token == _fetchToken) {
@@ -300,7 +316,12 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
       loadingLyrics = false;
       saved = wasSaved;
       final lang = SettingsService.translationLang.value;
-      translatedLines = result?.translationLang == lang ? result?.translatedLines : null;
+      // La traducción guardada solo sirve si es del idioma elegido y tiene
+      // tantas líneas como la letra (si la letra se editó después, quedaría
+      // corrida y desincronizada).
+      translatedLines = result != null && result.translationLang == lang
+          ? TranslationService.alignedTo(result.translatedLines, result.syncedLyrics.length)
+          : null;
       romanizedLines = result?.romanizedLines;
       lyricsError = result == null ? 'No encontramos la letra de esta canción.' : null;
       _notify();
@@ -333,8 +354,7 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> useChosenLyrics(LyricsResult chosen) async {
     lyrics = chosen;
     lyricsError = null;
-    translatedLines = null;
-    romanizedLines = null;
+    _resetTranslation();
     saved = false;
     _notify();
     _pushLiveLyrics();
@@ -349,46 +369,126 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
 
   // ------------------------------------------------------------- traducción
 
-  void _onTranslationSettingsChanged() {
+  /// Descarta todo lo de la traducción de la letra anterior: lo pendiente
+  /// se cancela (deja de mandar pedidos) y su respuesta, si llega, se
+  /// ignora.
+  void _resetTranslation() {
+    _translationCancel?.cancel();
+    _translationCancel = null;
+    _romanCancel?.cancel();
+    _romanCancel = null;
+    _translationFuture = null;
+    _translationRetry?.cancel();
+    _translationRetry = null;
+    _translationRetries = 0;
     translatedLines = null;
+    translationProvisional = false;
+    translating = false;
+    romanizedLines = null;
+  }
+
+  void _onTranslationSettingsChanged() {
+    final roman = romanizedLines;
+    _resetTranslation();
+    romanizedLines = roman; // la pronunciación no depende del idioma elegido
     _notify();
     if (showTranslation) fetchTranslation();
   }
 
-  Future<List<String>?> _ensureTranslation() async {
-    if (translatedLines != null) return translatedLines;
+  /// Pide la traducción de la letra actual, una sola vez: si ya hay un
+  /// pedido en curso para esta letra, devuelve ese mismo. Mientras llega,
+  /// la pantalla muestra la letra original; si la IA está activada, primero
+  /// aparece la traducción automática y después la de la IA.
+  Future<List<String>?> _ensureTranslation() {
     final current = lyrics;
-    if (current == null || !current.hasSyncedLyrics) return null;
+    if (current == null || !current.hasSyncedLyrics) return Future.value(null);
+    if (translatedLines != null && !translationProvisional) return Future.value(translatedLines);
+    final pending = _translationFuture;
+    if (pending != null) return pending;
+
+    _translationRetry?.cancel();
+    final cancel = TranslationCancelToken();
+    _translationCancel = cancel;
+    final texts = current.syncedLyrics.map((l) => l.text).toList();
     translating = true;
     _notify();
-    try {
-      final translated = await translation.translate(
-        current.syncedLyrics.map((l) => l.text).toList(),
-        title: current.song.title,
-        artist: current.song.artist,
-      );
-      if (!_disposed && identical(current, lyrics)) translatedLines = translated;
-      return translated;
-    } finally {
+
+    bool stillCurrent() => !_disposed && !cancel.isCancelled && identical(current, lyrics);
+
+    final future = () async {
+      List<String>? result;
+      try {
+        await for (final update in translation.translateLive(
+          texts,
+          title: current.song.title,
+          artist: current.song.artist,
+          cancel: cancel,
+        )) {
+          if (!stillCurrent()) return null;
+          final aligned = TranslationService.alignedTo(update.lines, texts.length);
+          if (aligned != null) {
+            translatedLines = aligned;
+            translationProvisional = !update.isFinal;
+            _notify();
+          }
+          if (update.isFinal) result = aligned;
+        }
+      } catch (e, st) {
+        ErrorLog.record('traducción', e, st);
+      }
+      if (!stillCurrent()) return null;
+      _translationFuture = null;
       translating = false;
+      translationProvisional = false;
+      result ??= translatedLines;
       _notify();
+      return result;
+    }();
+    _translationFuture = future;
+    return future;
+  }
+
+  /// [userAction]: la pidió el usuario (tocó "Traducir"), así que se le
+  /// avisa también si la letra ya está en el idioma elegido.
+  Future<void> fetchTranslation({bool userAction = false, bool silent = false}) async {
+    final current = lyrics;
+    final translated = await _ensureTranslation();
+    if (_disposed || current == null || !identical(current, lyrics)) return;
+    if (translated == null) {
+      if (!current.hasSyncedLyrics) return;
+      final willRetry = _scheduleTranslationRetry();
+      if (!silent) {
+        _message(willRetry
+            ? 'No se pudo traducir ahora. Se reintenta solo en unos segundos; mientras, ves la letra original.'
+            : 'No se pudo traducir ahora. Prueba de nuevo en un rato.');
+      }
+    } else if (translated.isEmpty && userAction) {
+      _message('Esta letra ya está en el idioma elegido.');
     }
   }
 
-  Future<void> fetchTranslation() async {
-    final translated = await _ensureTranslation();
-    if (_disposed) return;
-    if (translated == null) {
-      _message('No se pudo traducir ahora. Prueba de nuevo en un rato.');
-    } else if (translated.isEmpty) {
-      _message('Esta letra ya está en el idioma elegido.');
-    }
+  /// Si falló (sin conexión, Google saturado...), se reintenta solo un par
+  /// de veces, cada vez esperando más. Devuelve si quedó programado.
+  bool _scheduleTranslationRetry() {
+    if (_translationRetries >= 3) return false;
+    _translationRetries++;
+    final current = lyrics;
+    _translationRetry?.cancel();
+    _translationRetry = Timer(Duration(seconds: 8 * _translationRetries), () {
+      if (_disposed || !showTranslation || !identical(current, lyrics)) return;
+      if (translatedLines != null) return;
+      fetchTranslation(silent: true);
+    });
+    return true;
   }
 
   void toggleTranslation() {
     showTranslation = !showTranslation;
     _notify();
-    if (showTranslation && translatedLines == null) fetchTranslation();
+    if (showTranslation && translatedLines == null) {
+      _translationRetries = 0;
+      fetchTranslation(userAction: true);
+    }
   }
 
   void _onRomanizationChanged() {
@@ -400,9 +500,12 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     final current = lyrics;
     if (current == null || romanizedLines != null || !SettingsService.showRomanization.value) return;
     if (!TranslationService.needsRomanization(current.displayLines)) return;
-    final roman = await translation.romanize(current.displayLines);
-    if (_disposed || !identical(current, lyrics)) return;
-    romanizedLines = roman;
+    _romanCancel?.cancel();
+    final cancel = TranslationCancelToken();
+    _romanCancel = cancel;
+    final roman = await translation.romanize(current.displayLines, cancel: cancel);
+    if (_disposed || cancel.isCancelled || !identical(current, lyrics)) return;
+    romanizedLines = TranslationService.alignedTo(roman, current.displayLines.length);
     _notify();
   }
 
@@ -549,7 +652,15 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
       final seconds = t?.nextDuration?.inSeconds;
       finder
           .find(title, artist ?? '', durationSeconds: seconds != null && seconds > 0 ? seconds : null)
-          .catchError((_) => null);
+          .then((result) {
+        // Si la traducción está prendida, dejamos lista también la
+        // automática (gratis) de la próxima: aparece apenas empieza. La de
+        // la IA (que cuesta) se pide recién cuando suena.
+        if (result == null || !showTranslation || !result.hasSyncedLyrics) return;
+        translation
+            .translate(result.syncedLyrics.map((l) => l.text).toList(), useAi: false)
+            .catchError((_) => null);
+      }).catchError((_) => null);
     });
   }
 

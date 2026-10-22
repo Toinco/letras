@@ -140,13 +140,9 @@ class UpdateService {
     if (!bundle.path.endsWith('.app')) {
       throw Exception('No se encontró Letras.app para reemplazarla.');
     }
-    final parent = bundle.parent;
-    final probe = File('${parent.path}/.letras-update-check');
-    try {
-      await probe.writeAsString('');
-      await probe.delete();
-    } on FileSystemException {
-      throw Exception('No hay permiso para escribir en ${parent.path}. '
+    final target = await macInstallTarget(bundle.path);
+    if (target == null) {
+      throw Exception('No hay permiso para escribir en Aplicaciones. '
           'Mueve Letras a la carpeta Aplicaciones y vuelve a intentar.');
     }
 
@@ -169,9 +165,47 @@ rm -rf "\$2" && /usr/bin/ditto "\$3" "\$2"
 /usr/bin/xattr -dr com.apple.quarantine "\$2" 2>/dev/null
 /usr/bin/open "\$2"
 ''');
-    await Process.start('/bin/sh', [script.path, '$pid', bundle.path, newApp.path],
+    await Process.start('/bin/sh', [script.path, '$pid', target, newApp.path],
         mode: ProcessStartMode.detached);
     exit(0);
+  }
+
+  /// Dónde dejar la Letras.app nueva. Normalmente, encima de la actual.
+  ///
+  /// Pero si la app se abrió sin moverla de Descargas, macOS la ejecuta desde
+  /// una copia de solo lectura (".../AppTranslocation/..."), y esa copia no
+  /// se puede reemplazar. En ese caso (o si no hay permiso en su carpeta) se
+  /// instala en Aplicaciones, o en ~/Applications si Aplicaciones no deja.
+  /// `null` si no se puede escribir en ningún lado.
+  static Future<String?> macInstallTarget(
+    String bundlePath, {
+    Future<bool> Function(String dir)? canWrite,
+    String? home,
+  }) async {
+    final writable = canWrite ?? _canWrite;
+    final parent = p.dirname(bundlePath);
+    final translocated = bundlePath.contains('/AppTranslocation/');
+    if (!translocated && await writable(parent)) return bundlePath;
+    final userHome = home ?? Platform.environment['HOME'];
+    for (final dir in [
+      '/Applications',
+      if (userHome != null && userHome.isNotEmpty) p.join(userHome, 'Applications'),
+    ]) {
+      if (await writable(dir)) return p.join(dir, 'Letras.app');
+    }
+    return null;
+  }
+
+  static Future<bool> _canWrite(String dir) async {
+    try {
+      await Directory(dir).create(recursive: true);
+      final probe = File(p.join(dir, '.letras-update-check'));
+      await probe.writeAsString('');
+      await probe.delete();
+      return true;
+    } on FileSystemException {
+      return false;
+    }
   }
 
   /// Lista de los `.old` que dejó la última actualización de Windows.

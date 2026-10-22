@@ -11,6 +11,7 @@ import '../services/accent_controller.dart';
 import '../services/genius_service.dart';
 import '../services/history_service.dart';
 import '../services/settings_service.dart';
+import '../services/translation_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/artwork_thumb.dart';
 import '../widgets/lyrics_picker_sheet.dart';
@@ -102,6 +103,17 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
   List<String>? _translatedLines;
   List<String>? _romanizedLines;
   bool _translating = false;
+  Future<List<String>?>? _translationFuture;
+  TranslationCancelToken? _translationCancel;
+
+  /// Avisa al karaoke abierto desde aquí cada vez que cambia algo.
+  final ValueNotifier<int> _karaokeUpdates = ValueNotifier(0);
+
+  @override
+  void setState(VoidCallback fn) {
+    super.setState(fn);
+    _karaokeUpdates.value++;
+  }
 
   bool get _isLive => widget.livePosition != null;
 
@@ -122,8 +134,10 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
     super.initState();
     // Si la letra viene de una descarga, la traducción ya puede estar
     // guardada ahí mismo: no hace falta pedirla de nuevo por red.
+    // Solo si tiene tantas líneas como la letra: si no, quedaría corrida.
     _translatedLines = widget.result.translationLang == SettingsService.translationLang.value
-        ? widget.result.translatedLines
+        ? TranslationService.alignedTo(
+            widget.result.translatedLines, widget.result.syncedLyrics.length)
         : null;
     _romanizedLines = widget.result.romanizedLines;
     _loadRomanization();
@@ -167,6 +181,13 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
           translatedLines: _translatedLines,
           showTranslation: _showTranslation,
           artworkBytes: _artworkBytes,
+          updates: _karaokeUpdates,
+          liveContent: () => KaraokeContent(
+            lyrics: _result,
+            translatedLines: _translatedLines,
+            showTranslation: _showTranslation,
+            offset: _isLive ? _offset : Duration.zero,
+          ),
         ),
       ),
     );
@@ -187,7 +208,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
     final wasSaved = _saved;
     setState(() {
       _result = chosen;
-      _translatedLines = null;
+      _resetTranslation();
       _romanizedLines = null;
       _saved = false;
       _manualPosition = Duration.zero;
@@ -204,7 +225,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
     final current = _result;
     final roman = await _translationService.romanize(current.displayLines);
     if (mounted && identical(current, _result) && roman != null) {
-      setState(() => _romanizedLines = roman);
+      setState(() => _romanizedLines = TranslationService.alignedTo(roman, current.displayLines.length));
     }
   }
 
@@ -224,7 +245,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
     if (edited == null || !mounted) return;
     setState(() {
       _result = edited;
-      _translatedLines = null;
+      _resetTranslation();
       _romanizedLines = null;
       _manualPosition = Duration.zero;
     });
@@ -240,46 +261,81 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
     if (!_manualPlaying) _toggleManualPlayback();
   }
 
+  /// Descarta la traducción de la letra anterior (lo pendiente se cancela).
+  void _resetTranslation() {
+    _translationCancel?.cancel();
+    _translationCancel = null;
+    _translationFuture = null;
+    _translatedLines = null;
+    _translating = false;
+  }
+
   /// Pide la traducción si todavía no la tenemos (ni en memoria ni
-  /// guardada). Devuelve la lista (puede ser vacía si ya está en español).
-  Future<List<String>?> _ensureTranslation() async {
-    if (_translatedLines != null) return _translatedLines;
-    if (!_result.hasSyncedLyrics) return null;
+  /// guardada), una sola vez: si ya hay un pedido en curso, devuelve ese.
+  /// Devuelve la lista (vacía si ya está en el idioma elegido) o `null` si
+  /// falló. Si la IA está activada, primero se ve la automática.
+  Future<List<String>?> _ensureTranslation() {
+    if (_translatedLines != null && !_translating) return Future.value(_translatedLines);
+    final pending = _translationFuture;
+    if (pending != null) return pending;
+    final current = _result;
+    if (!current.hasSyncedLyrics) return Future.value(null);
+
+    final cancel = TranslationCancelToken();
+    _translationCancel = cancel;
+    final texts = current.syncedLyrics.map((l) => l.text).toList();
     setState(() => _translating = true);
-    try {
-      final translated = await _translationService.translate(
-        _result.syncedLyrics.map((l) => l.text).toList(),
-        title: _result.song.title,
-        artist: _result.song.artist,
-      );
-      if (mounted) setState(() => _translatedLines = translated);
-      return translated;
-    } finally {
-      if (mounted) setState(() => _translating = false);
-    }
+    bool stillCurrent() => mounted && !cancel.isCancelled && identical(current, _result);
+
+    final future = () async {
+      List<String>? result;
+      try {
+        await for (final update in _translationService.translateLive(
+          texts,
+          title: current.song.title,
+          artist: current.song.artist,
+          cancel: cancel,
+        )) {
+          if (!stillCurrent()) return null;
+          final aligned = TranslationService.alignedTo(update.lines, texts.length);
+          if (aligned != null) setState(() => _translatedLines = aligned);
+          if (update.isFinal) result = aligned;
+        }
+      } catch (_) {}
+      if (!stillCurrent()) return null;
+      setState(() {
+        _translating = false;
+        _translationFuture = null;
+      });
+      return result ?? _translatedLines;
+    }();
+    _translationFuture = future;
+    return future;
   }
 
   Future<void> _toggleTranslation() async {
     setState(() => _showTranslation = !_showTranslation);
-    if (_showTranslation) {
-      final translated = await _ensureTranslation();
-      if (!mounted) return;
-      if (translated == null) {
-        // Falló de verdad (sin conexión, o se agotó la cuota gratuita del
-        // traductor por hoy) — no lo confundimos con "ya está en español".
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'No se pudo traducir ahora. Puede ser que se haya agotado la '
-              'cuota gratuita del traductor por hoy — prueba de nuevo más tarde.',
-            ),
+    if (!_showTranslation || _translatedLines != null) return;
+    final current = _result;
+    final translated = await _ensureTranslation();
+    if (!mounted || !identical(current, _result)) return;
+    if (translated == null) {
+      // Falló de verdad (sin conexión, o el traductor está saturado) — no
+      // lo confundimos con "ya está en español". Mientras, se ve la letra
+      // original.
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No se pudo traducir ahora (sin conexión o el traductor está saturado). '
+            'Toca "Traducir" de nuevo en un rato.',
           ),
-        );
-      } else if (translated.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Esta letra ya parece estar en el idioma elegido.')),
-        );
-      }
+        ),
+      );
+      setState(() => _showTranslation = false);
+    } else if (translated.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Esta letra ya parece estar en el idioma elegido.')),
+      );
     }
   }
 
@@ -387,6 +443,8 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
 
   @override
   void dispose() {
+    _translationCancel?.cancel();
+    _karaokeUpdates.dispose();
     _manualTimer?.cancel();
     _manualClockController.close();
     WakelockPlus.disable().catchError((_) {});
@@ -446,7 +504,7 @@ class _LyricsScreenState extends ConsumerState<LyricsScreen> {
                       Icons.translate_rounded,
                       color: _showTranslation ? Theme.of(context).colorScheme.primary : null,
                     ),
-              onPressed: _translating ? null : _toggleTranslation,
+              onPressed: _toggleTranslation,
             ),
           IconButton(
             tooltip: _saved ? 'Ya descargada' : 'Descargar letra',
