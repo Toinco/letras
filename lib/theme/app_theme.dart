@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 /// Tema oscuro, minimalista, inspirado en Apple Music: fondo negro,
@@ -17,8 +19,18 @@ class AppTheme {
 
   static ThemeData get dark => build(brandAccent);
 
+  /// En la Mac (y iPhone) se usa la tipografía del sistema, San Francisco.
+  /// En Windows y Linux, Inter (incluida en la app), que es casi igual: así
+  /// la app se ve igual en todas las compus. San Francisco no se puede
+  /// incluir fuera de Apple por su licencia.
+  static String? get fontFamily => (Platform.isWindows || Platform.isLinux) ? 'Inter' : null;
+
   static ThemeData build(Color accent) {
-    final base = ThemeData.dark(useMaterial3: true);
+    final base = ThemeData(
+      brightness: Brightness.dark,
+      useMaterial3: true,
+      fontFamily: fontFamily,
+    );
     return base.copyWith(
       scaffoldBackgroundColor: background,
       primaryColor: accent,
@@ -27,7 +39,7 @@ class AppTheme {
         secondary: accent,
         surface: surface,
       ),
-      appBarTheme: const AppBarTheme(
+      appBarTheme: AppBarTheme(
         backgroundColor: background,
         elevation: 0,
         // Sin el tinte que Material 3 le pone al scrollear: la barra queda
@@ -36,6 +48,7 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         centerTitle: false,
         titleTextStyle: TextStyle(
+          fontFamily: fontFamily,
           color: textPrimary,
           fontSize: 28,
           fontWeight: FontWeight.w700,
@@ -58,8 +71,9 @@ class AppTheme {
         selectedIconTheme: IconThemeData(color: accent),
         unselectedIconTheme: const IconThemeData(color: textSecondary),
         selectedLabelTextStyle:
-            TextStyle(color: accent, fontSize: 11.5, fontWeight: FontWeight.w600),
-        unselectedLabelTextStyle: const TextStyle(color: textSecondary, fontSize: 11.5),
+            TextStyle(
+                fontFamily: fontFamily, color: accent, fontSize: 11.5, fontWeight: FontWeight.w600),
+        unselectedLabelTextStyle: TextStyle(fontFamily: fontFamily, color: textSecondary, fontSize: 11.5),
         minWidth: 84,
       ),
       scrollbarTheme: ScrollbarThemeData(
@@ -73,7 +87,7 @@ class AppTheme {
           color: const Color(0xFF2C2C2E),
           borderRadius: BorderRadius.circular(8),
         ),
-        textStyle: const TextStyle(color: Colors.white, fontSize: 12),
+        textStyle: TextStyle(fontFamily: fontFamily, color: Colors.white, fontSize: 12),
       ),
       chipTheme: ChipThemeData(
         selectedColor: accent.withValues(alpha: 0.25),
@@ -101,7 +115,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: const Color(0xFF2C2C2E),
-        contentTextStyle: const TextStyle(color: Colors.white),
+        contentTextStyle: TextStyle(fontFamily: fontFamily, color: Colors.white),
         actionTextColor: accent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
@@ -113,7 +127,7 @@ class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(30),
           ),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          textStyle: TextStyle(fontFamily: fontFamily, fontWeight: FontWeight.w600, fontSize: 16),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
@@ -124,7 +138,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(14),
           borderSide: BorderSide.none,
         ),
-        hintStyle: const TextStyle(color: textSecondary),
+        hintStyle: TextStyle(fontFamily: fontFamily, color: textSecondary),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );

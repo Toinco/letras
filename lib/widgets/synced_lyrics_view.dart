@@ -117,7 +117,9 @@ double fitFocusFontSize(
   final words = text.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
   var size = maxSize;
   while (size > 22) {
-    final style = TextStyle(fontSize: size, fontWeight: FontWeight.w800, height: 1.15);
+    // Con la misma tipografía con la que se va a dibujar (Inter en Windows).
+    final style = TextStyle(
+        fontFamily: AppTheme.fontFamily, fontSize: size, fontWeight: FontWeight.w800, height: 1.15);
     TextPainter painter(String t) => TextPainter(
           text: TextSpan(text: t, style: style),
           textDirection: TextDirection.ltr,
