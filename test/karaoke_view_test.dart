@@ -72,4 +72,20 @@ void main() {
     expect(_dots, findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('palabra por palabra solo si la letra trae los tiempos de cada palabra',
+      (tester) async {
+    final karaoke = find.byWidgetPredicate((w) => w.runtimeType.toString() == '_KaraokeText');
+    final position = await pump(tester);
+    position.add(const Duration(milliseconds: 1500)); // "Hola mundo": con tiempos por palabra
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(karaoke, findsOneWidget);
+
+    position.add(const Duration(milliseconds: 10500)); // "Chau": sin tiempos por palabra
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(karaoke, findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
 }

@@ -817,8 +817,14 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
       letterSpacing: 0,
     );
 
+    // Palabra por palabra solo con los tiempos reales de cada palabra. Sin
+    // ellos el relleno era una estimación que iba adelantada o atrasada
+    // respecto de la voz: la línea entera se ilumina al empezar, que
+    // siempre coincide.
+    final exactWords = widget.lines[index].hasWordSync;
+
     Widget part(VocalPart p, TextStyle style, TextAlign textAlign) {
-      if (!isCurrent) return Text(p.text, style: style, textAlign: textAlign);
+      if (!isCurrent || !exactWords) return Text(p.text, style: style, textAlign: textAlign);
       return ValueListenableBuilder<bool>(
         valueListenable: SettingsService.karaokeFill,
         builder: (context, karaoke, _) => karaoke
@@ -1089,8 +1095,8 @@ class _Blur extends StatelessWidget {
 /// Texto con relleno tipo karaoke, como Apple Music: cada palabra se va
 /// iluminando de izquierda a derecha con un borde suave mientras se canta,
 /// sube un poquito al cantarse y, si es una nota larga, brilla y se agranda
-/// apenas. Sigue los tiempos de cada palabra (exactos si la letra los trae,
-/// estimados si no) y respeta los saltos de renglón. Solo se repinta (no se
+/// apenas. Sigue los tiempos reales de cada palabra (solo se usa si la
+/// letra los trae) y respeta los saltos de renglón. Solo se repinta (no se
 /// reconstruye) cuando avanza [now].
 class _KaraokeText extends StatelessWidget {
   final VocalPart part;

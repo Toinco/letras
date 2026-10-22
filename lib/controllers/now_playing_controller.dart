@@ -224,7 +224,6 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     _subscribed = true;
     _trackSub = nowPlaying.trackStream.listen((t) {
       final previous = track;
-      _lastSessionArt = t?.albumArt;
       _sessionTrack = _withCleanArtwork(t);
       _onTrackChanged(previous);
       _maybePrefetchNext(t);
@@ -234,9 +233,9 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
   // ------------------------------------------------------------- carátula
 
   /// Spotify en Windows no entrega la carátula sola: manda una imagen con
-  /// la tapa y su logo abajo. Para esas se usa la carátula de verdad (la de
-  /// la descarga, o buscada por título y artista); la de Spotify queda solo
-  /// si no se encuentra otra.
+  /// la tapa y su logo abajo. Esa no se muestra nunca: se usa la carátula de
+  /// verdad (la de la descarga, o buscada en iTunes y Deezer) y, si no
+  /// aparece, ninguna.
   static bool hasBrandedArtwork(NowPlayingTrack t) =>
       isWindows && (t.packageName?.toLowerCase().contains('spotify') ?? false);
 
@@ -245,13 +244,10 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, Uint8List?> _cleanArt = {};
   final Set<String> _cleanArtLoading = {};
 
-  /// La carátula tal cual llegó en el último evento.
-  Uint8List? _lastSessionArt;
-
   NowPlayingTrack? _withCleanArtwork(NowPlayingTrack? t) {
     if (t == null || !hasBrandedArtwork(t)) return t;
     final key = '${t.title}|${t.artist}';
-    if (_cleanArt.containsKey(key)) return t.withAlbumArt(_cleanArt[key] ?? t.albumArt);
+    if (_cleanArt.containsKey(key)) return t.withAlbumArt(_cleanArt[key]);
     if (_cleanArtLoading.add(key)) _loadCleanArtwork(t, key);
     // Mientras se busca, sin carátula (mejor que mostrar el logo un instante).
     return t.withAlbumArt(null);
@@ -269,14 +265,12 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     }
     _cleanArtLoading.remove(key);
     if (_disposed) return;
-    // null = no se encontró: se usa la de Spotify (ver _withCleanArtwork).
+    // null = no se encontró: queda sin carátula (nunca la del logo).
     _cleanArt[key] = art;
     if (_cleanArt.length > 50) _cleanArt.remove(_cleanArt.keys.first);
     final current = _sessionTrack;
     if (current == null || '${current.title}|${current.artist}' != key) return;
-    // La de Spotify del último evento (para el caso de que no haya otra).
-    final latestOriginal = _lastSessionArt;
-    _sessionTrack = current.withAlbumArt(art ?? latestOriginal);
+    _sessionTrack = current.withAlbumArt(art);
     AccentController.updateFromArtwork(track?.albumArt);
     _notify();
   }

@@ -48,4 +48,19 @@ void main() {
     );
     expect(best?['collectionName'], 'GUTS');
   });
+
+  test('Deezer se lee igual que iTunes y pide la tapa en 600 px', () {
+    final r = ArtworkService.deezerToItunes({
+      'title': 'Goten',
+      'duration': 150,
+      'artist': {'name': 'Lucho SSJ'},
+      'album': {
+        'title': 'Goten',
+        'cover_xl': 'https://cdn-images.dzcdn.net/images/cover/abc/1000x1000-000000-80-0-0.jpg',
+      },
+    });
+    final best = ArtworkService.pickBest([r], 'Goten', 'Lucho SSJ', durationSeconds: 150);
+    expect(ArtworkService.bigArtworkUrl(best!),
+        'https://cdn-images.dzcdn.net/images/cover/abc/600x600-000000-80-0-0.jpg');
+  });
 }

@@ -22,8 +22,10 @@ class ArtworkService {
   /// Antes se usaba el primer resultado de iTunes, que muchas veces es otra
   /// canción del mismo artista (para "love is embarrassing" de Olivia
   /// Rodrigo, el primero es "good 4 u" y salía la tapa de SOUR en vez de la
-  /// de GUTS). Ahora se piden varios y se elige el que coincide; si ninguno
-  /// coincide, mejor sin carátula que con una equivocada.
+  /// de GUTS). Ahora se piden varios y se elige el que coincide. Si iTunes
+  /// no la tiene (pasa mucho con artistas independientes o latinos), se
+  /// busca en Deezer. Si ninguno coincide, mejor sin carátula que con una
+  /// equivocada.
   Future<String?> fetchArtworkUrl(
     String title,
     String artist, {
@@ -37,28 +39,39 @@ class ArtworkService {
     ].join('|');
     if (_cache.containsKey(key)) return _cache[key];
 
-    try {
-      var results = await _search('$artist ${cleanTitleForMatching(title)}');
-      var best = pickBest(results, title, artist, album: album, durationSeconds: durationSeconds);
-      // Con artistas de nombre largo ("A, B & C") a veces no aparece: se
-      // reintenta solo con el principal.
-      final primary = primaryArtistName(artist);
-      if (best == null && primary != artist.trim()) {
-        results = await _search('$primary ${cleanTitleForMatching(title)}');
-        best = pickBest(results, title, artist, album: album, durationSeconds: durationSeconds);
+    final cleanTitle = cleanTitleForMatching(title);
+    final primary = primaryArtistName(artist);
+    // Con artistas de nombre largo ("A, B & C") a veces no aparece: se
+    // reintenta solo con el principal.
+    final terms = {'$artist $cleanTitle', '$primary $cleanTitle'};
+    var failed = false;
+    for (final search in [_searchItunes, _searchDeezer]) {
+      for (final term in terms) {
+        try {
+          final best = pickBest(await search(term), title, artist,
+              album: album, durationSeconds: durationSeconds);
+          final url = best == null ? null : bigArtworkUrl(best);
+          if (url != null) return _cache[key] = url;
+        } catch (_) {
+          failed = true;
+        }
       }
-      final artwork100 = best?['artworkUrl100'] as String?;
-      // Pide una versión más grande que la miniatura de 100x100 por defecto.
-      final artworkBig = artwork100?.replaceAll('100x100', '600x600');
-      _cache[key] = artworkBig;
-      return artworkBig;
-    } catch (_) {
-      // Error de red: no se guarda, así se reintenta la próxima vez.
-      return null;
     }
+    // Si alguna búsqueda falló por red no se guarda, así se reintenta.
+    if (!failed) _cache[key] = null;
+    return null;
   }
 
-  Future<List<Map<String, dynamic>>> _search(String term) async {
+  /// La carátula en 600 px de un resultado de [pickBest].
+  static String? bigArtworkUrl(Map<String, dynamic> r) {
+    final big = r['artworkBig'];
+    if (big is String) return big;
+    final small = r['artworkUrl100'];
+    // Pide una versión más grande que la miniatura de 100x100 por defecto.
+    return small is String ? small.replaceAll('100x100', '600x600') : null;
+  }
+
+  Future<List<Map<String, dynamic>>> _searchItunes(String term) async {
     final uri = Uri.https('itunes.apple.com', '/search', {
       'term': term,
       'entity': 'song',
@@ -73,12 +86,42 @@ class ArtworkService {
     ];
   }
 
+  /// Misma búsqueda en la API pública de Deezer (sin API key), con los
+  /// resultados en la forma de los de iTunes.
+  Future<List<Map<String, dynamic>>> _searchDeezer(String term) async {
+    final uri = Uri.https('api.deezer.com', '/search', {'q': term, 'limit': '25'});
+    final response = await AppHttp.get(uri, timeout: const Duration(seconds: 8));
+    if (response.statusCode != 200) return const [];
+    final json = jsonDecode(response.body);
+    if (json is! Map<String, dynamic>) return const [];
+    return [
+      for (final r in json['data'] as List<dynamic>? ?? const [])
+        if (r is Map<String, dynamic> && r['album'] is Map<String, dynamic>) deezerToItunes(r),
+    ];
+  }
+
+  static Map<String, dynamic> deezerToItunes(Map<String, dynamic> r) {
+    final album = r['album'] as Map<String, dynamic>;
+    final artist = r['artist'];
+    final cover = (album['cover_xl'] ?? album['cover_big']) as String?;
+    final duration = r['duration'];
+    return {
+      'trackName': r['title'] ?? '',
+      'artistName': artist is Map ? artist['name'] ?? '' : '',
+      'collectionName': album['title'] ?? '',
+      if (duration is num) 'trackTimeMillis': duration * 1000,
+      // Deezer arma la URL con el tamaño: se pide en 600 px.
+      if (cover != null) 'artworkBig': cover.replaceAll(RegExp(r'/\d+x\d+-'), '/600x600-'),
+    };
+  }
+
   static final _coverWords = RegExp(
     r'\b(karaoke|instrumental|tribute|cover|covers|piano|lullaby|made famous|originally performed'
     r'|in the style of|8-bit|music box)\b',
   );
 
-  /// El resultado de iTunes que es esta canción, o `null` si ninguno lo es.
+  /// El resultado (de iTunes, o de Deezer en la misma forma) que es esta
+  /// canción, o `null` si ninguno lo es.
   static Map<String, dynamic>? pickBest(
     List<Map<String, dynamic>> results,
     String title,
@@ -103,7 +146,7 @@ class ArtworkService {
       final rTitle = _norm(cleanTitleForMatching(r['trackName'] as String? ?? ''));
       final rArtist = _norm(r['artistName'] as String? ?? '');
       final rAlbum = _norm(cleanTitleForMatching(r['collectionName'] as String? ?? ''));
-      if (r['artworkUrl100'] is! String) continue;
+      if (bigArtworkUrl(r) == null) continue;
 
       // Título y artista tienen que coincidir sí o sí.
       var score = 0;

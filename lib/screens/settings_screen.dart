@@ -308,8 +308,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
             _switch(
               notifier: SettingsService.karaokeFill,
               title: 'Efecto karaoke',
-              subtitle: 'La línea actual se va iluminando mientras se canta (palabra por '
-                  'palabra si la letra lo trae).',
+              subtitle: 'Si la letra trae el tiempo de cada palabra, se van iluminando '
+                  'mientras se cantan.',
               onChanged: _settingsService.setKaraokeFill,
             ),
             _switch(
