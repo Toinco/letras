@@ -279,6 +279,16 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     stats.startPlay(t.title, t.artist).then((id) {
       if (token == _fetchToken) _playId = id;
     });
+    // Si las fuentes están lentas (LRCLIB saturado), no dejamos la ruedita
+    // girando: a los 12 s se ofrece reintentar. Si la letra llega después,
+    // igual aparece sola.
+    Timer(const Duration(seconds: 12), () {
+      if (_disposed || token != _fetchToken || !loadingLyrics) return;
+      loadingLyrics = false;
+      lyricsError = 'La letra está tardando más de lo normal (los servidores de letras '
+          'andan lentos). Puedes reintentar o esperar un poco más.';
+      _notify();
+    });
     try {
       // Si ya la habíamos descargado, la usamos directamente: es
       // instantáneo, funciona sin conexión y ya trae la traducción.
@@ -295,6 +305,7 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
       lyricsError = result == null ? 'No encontramos la letra de esta canción.' : null;
       _notify();
       _pushLiveLyrics();
+      _maybePrefetchNext(track);
       if (showTranslation && translatedLines == null) fetchTranslation();
       _maybeRomanize();
       if (result != null && !wasSaved && await settings.getAutoSaveListened()) {
@@ -519,6 +530,10 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
   /// letra ya (queda en caché), así aparece al instante cuando empiece.
   void _maybePrefetchNext(NowPlayingTrack? t) {
     if (!SettingsService.prefetchNext.value) return;
+    // Primero la que suena: pedir las dos juntas hace que LRCLIB (cuando
+    // está cargado) conteste "servidor saturado" a todo. Se vuelve a llamar
+    // cuando llega la letra de la actual.
+    if (loadingLyrics || (lyrics == null && lyricsError == null)) return;
     final title = t?.nextTitle;
     final artist = t?.nextArtist;
     if (title == null || title.isEmpty) return;
@@ -528,9 +543,13 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
     // Primero la descargada (si existe no hace falta buscar nada).
     storage.isSaved(title, artist ?? '').then((isSaved) {
       if (isSaved) return;
-      // Sin duración: la cola no la trae. Cuando la canción empiece se
-      // busca con duración, pero LRCLIB ya habrá respondido rápido.
-      finder.find(title, artist ?? '').catchError((_) => null);
+      // Con la duración (si la app la informa, como Música de la Mac) queda
+      // en caché con la misma clave que se usa cuando empieza: aparece al
+      // instante. Sin duración, al menos LRCLIB ya la tiene a mano.
+      final seconds = t?.nextDuration?.inSeconds;
+      finder
+          .find(title, artist ?? '', durationSeconds: seconds != null && seconds > 0 ? seconds : null)
+          .catchError((_) => null);
     });
   }
 

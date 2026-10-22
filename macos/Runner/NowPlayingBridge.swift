@@ -25,6 +25,9 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     let positionMs: Int
     let isPlaying: Bool
     let artworkUrl: String?
+    let nextTitle: String?
+    let nextArtist: String?
+    let nextDurationMs: Int
     let readAt: Date
 
     var key: String { "\(bundleId)|\(title)|\(artist)" }
@@ -53,7 +56,18 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     with timeout of 3 seconds
       tell application id "com.apple.Music"
         set t to current track
-        return {name of t, artist of t, album of t, (duration of t) * 1000, player position, player state as string}
+        -- La próxima de la lista (si se está escuchando una lista o un
+        -- álbum), para buscar su letra por adelantado.
+        set nextName to ""
+        set nextArtistName to ""
+        set nextDur to 0
+        try
+          set nextTrack to track ((index of t) + 1) of current playlist
+          set nextName to name of nextTrack
+          set nextArtistName to artist of nextTrack
+          set nextDur to (duration of nextTrack) * 1000
+        end try
+        return {name of t, artist of t, album of t, (duration of t) * 1000, player position, player state as string, nextName, nextArtistName, nextDur}
       end tell
     end timeout
     """
@@ -65,8 +79,7 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     """
 
   private let queue = DispatchQueue(label: "io.letras.app.nowplaying")
-  /// La carátula va aparte: así nunca demora el aviso de qué canción suena.
-  private let artQueue = DispatchQueue(label: "io.letras.app.artwork")
+  private var ticks = 0
   private var sink: FlutterEventSink?
   private var timer: Timer?
   private var compiled: [String: NSAppleScript] = [:]
@@ -186,9 +199,15 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     sink = events
     poll(force: true)
     // Sondeo liviano: detecta saltos dentro de la canción (que no siempre
-    // vienen con aviso) y corrige la posición.
-    timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-      self?.poll(force: false)
+    // vienen con aviso) y corrige la posición. Una vez por segundo, y cada
+    // medio segundo cuando la canción está por terminar: así la siguiente se
+    // detecta enseguida (antes se veía con unos segundos de atraso).
+    timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+      guard let self = self else { return }
+      self.queue.async {
+        self.ticks += 1
+        if self.ticks % 2 == 0 || self.nearEnd() { self.pollNow(force: false) }
+      }
     }
     return nil
   }
@@ -239,7 +258,16 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
       positionMs: Int(number(5) * 1000),
       isPlaying: state == "playing",
       artworkUrl: isSpotify ? list.atIndex(7)?.stringValue : nil,
+      nextTitle: isSpotify ? nil : list.atIndex(7)?.stringValue,
+      nextArtist: isSpotify ? nil : list.atIndex(8)?.stringValue,
+      nextDurationMs: isSpotify ? 0 : Int(number(9)),
       readAt: Date())
+  }
+
+  /// ¿Faltan menos de 2 segundos (o ya se pasó) para que termine?
+  private func nearEnd() -> Bool {
+    guard let s = lastEmitted, s.isPlaying, s.durationMs > 0 else { return false }
+    return s.positionNow() >= s.durationMs - 2000
   }
 
   private func pollNow(force: Bool) {
@@ -283,6 +311,9 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
       "isPlaying": s.isPlaying,
       "playbackSpeed": 1.0,
       "packageName": s.bundleId,
+      "nextTitle": s.nextTitle ?? "",
+      "nextArtist": s.nextArtist ?? "",
+      "nextDurationMs": s.nextDurationMs,
       "players": lastStates.map {
         ["packageName": $0.bundleId, "title": $0.title, "artist": $0.artist, "isPlaying": $0.isPlaying]
       },
@@ -315,12 +346,9 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
       }
     }
     if s.bundleId == "com.apple.Music" {
-      artQueue.async {
-        var error: NSDictionary?
-        let data = NSAppleScript(source: Self.musicArtworkScript)?
-          .executeAndReturnError(&error).data
-        done(error == nil ? data : nil)
-      }
+      // En la misma cola que el resto (AppleScript no aguanta dos pedidos a
+      // la vez), pero en la vuelta siguiente: el aviso de la canción ya salió.
+      queue.async { done(self.run(Self.musicArtworkScript)?.data) }
     } else if let raw = s.artworkUrl, let url = URL(string: raw), url.scheme == "https" {
       URLSession.shared.dataTask(with: url) { data, response, _ in
         let ok = (response as? HTTPURLResponse)?.statusCode == 200

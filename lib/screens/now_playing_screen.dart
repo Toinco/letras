@@ -1123,7 +1123,7 @@ class _TrackTitle extends StatelessWidget {
 
 /// Fondo con la carátula muy difuminada y oscurecida, como en Apple Music.
 /// Cambia con un fundido suave cuando cambia la canción. Con [animated]
-/// (pantalla completa) la imagen gira y respira despacio, como en Música.
+/// (pantalla completa) los colores fluyen despacio, como en Música.
 class _ArtBackground extends StatefulWidget {
   final Uint8List? bytes;
   final bool animated;
@@ -1136,7 +1136,7 @@ class _ArtBackground extends StatefulWidget {
 
 class _ArtBackgroundState extends State<_ArtBackground> with SingleTickerProviderStateMixin {
   late final AnimationController _motion =
-      AnimationController(vsync: this, duration: const Duration(seconds: 40));
+      AnimationController(vsync: this, duration: const Duration(seconds: 90));
 
   @override
   void initState() {
@@ -1180,24 +1180,17 @@ class _ArtBackgroundState extends State<_ArtBackground> with SingleTickerProvide
               key: ObjectKey(art),
               fit: StackFit.expand,
               children: [
-                ImageFiltered(
-                  imageFilter:
-                      ui.ImageFilter.blur(sigmaX: 60, sigmaY: 60, tileMode: TileMode.mirror),
-                  child: AnimatedBuilder(
-                    animation: _motion,
-                    builder: (context, child) {
-                      final t = _motion.value * 2 * math.pi;
-                      return Transform.rotate(
-                        angle: widget.animated ? t : 0,
-                        child: Transform.scale(
-                          scale: widget.animated ? 1.9 + 0.15 * math.sin(t * 2) : 1.4,
-                          child: child,
-                        ),
-                      );
-                    },
-                    child: Image.memory(art, fit: BoxFit.cover, gaplessPlayback: true),
+                if (widget.animated)
+                  _FlowingArt(art: art, motion: _motion)
+                else
+                  ImageFiltered(
+                    imageFilter:
+                        ui.ImageFilter.blur(sigmaX: 60, sigmaY: 60, tileMode: TileMode.mirror),
+                    child: Transform.scale(
+                      scale: 1.4,
+                      child: Image.memory(art, fit: BoxFit.cover, gaplessPlayback: true),
+                    ),
                   ),
-                ),
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -1216,5 +1209,70 @@ class _ArtBackgroundState extends State<_ArtBackground> with SingleTickerProvide
               ],
             ),
     );
+  }
+}
+
+/// El fondo de Música en pantalla completa: varias copias de la carátula,
+/// grandes y muy difuminadas, que se desplazan y giran cada una a su ritmo
+/// (algunas al revés). Mezcladas dan manchas de color que fluyen, en vez
+/// de una imagen que gira.
+class _FlowingArt extends StatelessWidget {
+  final Uint8List art;
+  final Animation<double> motion;
+
+  const _FlowingArt({required this.art, required this.motion});
+
+  // Cada capa: dónde está su centro (en fracciones de la pantalla), cuánto
+  // se aleja de ahí, vueltas por ciclo (negativo = al revés) y tamaño.
+  static const _layers = [
+    (cx: 0.25, cy: 0.25, drift: 0.16, spin: 1.0, size: 1.15, phase: 0.0),
+    (cx: 0.80, cy: 0.30, drift: 0.20, spin: -1.0, size: 1.0, phase: 1.7),
+    (cx: 0.30, cy: 0.80, drift: 0.18, spin: -2.0, size: 0.95, phase: 3.1),
+    (cx: 0.75, cy: 0.75, drift: 0.14, spin: 2.0, size: 1.1, phase: 4.4),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final image = Image.memory(art, fit: BoxFit.cover, gaplessPlayback: true);
+    return LayoutBuilder(builder: (context, box) {
+      final w = box.maxWidth;
+      final h = box.maxHeight;
+      final side = math.max(w, h);
+      return ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: 90, sigmaY: 90, tileMode: TileMode.mirror),
+        child: ColorFiltered(
+          // Un poco más de saturación, como en Música (la mezcla lava los colores).
+          colorFilter: const ColorFilter.matrix([
+            1.35, -0.2, -0.15, 0, 0, //
+            -0.15, 1.3, -0.15, 0, 0, //
+            -0.15, -0.2, 1.35, 0, 0, //
+            0, 0, 0, 1, 0,
+          ]),
+          child: AnimatedBuilder(
+            animation: motion,
+            builder: (context, _) {
+              final t = motion.value * 2 * math.pi;
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(child: Transform.scale(scale: 1.3, child: image)),
+                  for (final l in _layers)
+                    Positioned(
+                      left: (l.cx + l.drift * math.sin(t + l.phase)) * w - side * l.size / 2,
+                      top: (l.cy + l.drift * math.cos(t * 1.3 + l.phase)) * h - side * l.size / 2,
+                      width: side * l.size,
+                      height: side * l.size,
+                      child: Transform.rotate(
+                        angle: t * l.spin + l.phase,
+                        child: ClipOval(child: image),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+    });
   }
 }

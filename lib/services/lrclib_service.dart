@@ -49,7 +49,7 @@ class LrclibService {
     // Espera corta: cuando LRCLIB está saturado es mejor rendirse rápido
     // (LyricsFinder prueba otra fuente) que dejar la pantalla cargando.
     final response = await AppHttp.get(uri,
-        headers: _headers, tag: 'lrclib', timeout: _lookupTimeout, retries: 1);
+        headers: _headers, tag: 'lrclib', timeout: _lookupTimeout, retries: 2);
     if (response.statusCode != 200) {
       throw Exception('LRCLIB respondió ${response.statusCode}');
     }
@@ -300,7 +300,7 @@ class LrclibService {
         if (durationSeconds != null && durationSeconds > 0) 'duration': durationSeconds.toString(),
       });
       final response = await AppHttp.get(uri,
-          headers: _headers, tag: 'lrclib', timeout: _lookupTimeout, retries: 1);
+          headers: _headers, tag: 'lrclib', timeout: _lookupTimeout, retries: 2);
       if (response.statusCode == 200) {
         return fromLrclibJson(jsonDecode(utf8.decode(response.bodyBytes)));
       }

@@ -9,6 +9,9 @@ import '../utils/lrc_parser.dart';
 import '../utils/text_normalize.dart';
 import 'app_http.dart';
 
+/// Fuentes de respaldo: si no contestan rápido, mejor seguir con otra.
+const _timeout = Duration(seconds: 6);
+
 const _browserUa =
     'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Mobile Safari/537.36';
 
@@ -44,7 +47,8 @@ class NeteaseLyricsSource {
       'type': '1',
       'limit': '10',
     });
-    final response = await AppHttp.get(uri, headers: _headers, tag: 'netease', retries: 1);
+    final response = await AppHttp.get(uri,
+        headers: _headers, tag: 'netease', timeout: _timeout, retries: 1);
     if (response.statusCode != 200) return [];
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final songs = (json['result']?['songs'] as List<dynamic>?) ?? [];
@@ -68,7 +72,8 @@ class NeteaseLyricsSource {
       'yv': '-1',
       'tv': '-1',
     });
-    final response = await AppHttp.get(uri, headers: _headers, tag: 'netease', retries: 1);
+    final response = await AppHttp.get(uri,
+        headers: _headers, tag: 'netease', timeout: _timeout, retries: 1);
     if (response.statusCode != 200) return null;
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final yrc = json['yrc']?['lyric'] as String?;
@@ -129,7 +134,8 @@ class GeniusLyricsSource {
 
   Future<LyricsResult?> find(String title, String artist) async {
     final uri = Uri.https('genius.com', '/api/search/multi', {'q': '$title ${primaryArtistName(artist)}'});
-    final response = await AppHttp.get(uri, headers: _headers, tag: 'genius', retries: 1);
+    final response = await AppHttp.get(uri,
+        headers: _headers, tag: 'genius', timeout: _timeout, retries: 1);
     if (response.statusCode != 200) return null;
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final sections = (json['response']?['sections'] as List<dynamic>?) ?? [];
@@ -148,7 +154,8 @@ class GeniusLyricsSource {
       }
     }
     if (best == null) return null;
-    final page = await AppHttp.get(Uri.parse(best.url), headers: _headers, tag: 'genius', retries: 1);
+    final page = await AppHttp.get(Uri.parse(best.url),
+        headers: _headers, tag: 'genius', timeout: _timeout, retries: 1);
     if (page.statusCode != 200) return null;
     final text = extractLyricsFromHtml(utf8.decode(page.bodyBytes));
     if (text.trim().isEmpty) return null;

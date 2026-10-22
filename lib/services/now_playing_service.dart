@@ -26,6 +26,10 @@ class NowPlayingTrack {
   final String? nextTitle;
   final String? nextArtist;
 
+  /// Duración de la próxima (si se sabe), para buscar su letra con la
+  /// misma clave que se va a usar cuando empiece.
+  final Duration? nextDuration;
+
   /// Todos los reproductores con algo cargado (para elegir cuál seguir
   /// cuando suenan dos a la vez).
   final List<PlayerInfo> players;
@@ -43,6 +47,7 @@ class NowPlayingTrack {
     this.packageName,
     this.nextTitle,
     this.nextArtist,
+    this.nextDuration,
     this.players = const [],
   });
 
@@ -107,6 +112,7 @@ class NowPlayingTrack {
         packageName: packageName,
         nextTitle: nextTitle,
         nextArtist: nextArtist,
+        nextDuration: nextDuration,
         players: players,
       );
 
@@ -139,6 +145,9 @@ class NowPlayingTrack {
       packageName: map['packageName'] as String?,
       nextTitle: map['nextTitle'] as String?,
       nextArtist: map['nextArtist'] as String?,
+      nextDuration: (map['nextDurationMs'] as num?) != null && (map['nextDurationMs'] as num) > 0
+          ? Duration(milliseconds: (map['nextDurationMs'] as num).toInt())
+          : null,
       players: ((map['players'] as List<dynamic>?) ?? [])
           .map((p) => PlayerInfo.fromMap(Map<dynamic, dynamic>.from(p as Map)))
           .toList(),
