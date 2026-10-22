@@ -68,9 +68,45 @@ class MacWindowInsets extends StatelessWidget {
   }
 }
 
-/// En pantallas anchas centra la pantalla (barra de arriba incluida) en
+/// Fondo de las pantallas de listas: negro, con un brillo suave del color
+/// de la carátula de lo que suena arriba (antes era negro liso y la app se
+/// sentía apagada fuera de Reproduciendo).
+class AmbientBackground extends StatelessWidget {
+  const AmbientBackground({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final hsl = HSLColor.fromColor(accent);
+    // Un segundo tono vecino, para que el brillo no sea de un solo color.
+    final second = hsl.withHue((hsl.hue + 40) % 360).toColor();
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 800),
+      decoration: const BoxDecoration(color: AppTheme.background),
+      foregroundDecoration: BoxDecoration(
+        gradient: RadialGradient(
+          center: const Alignment(-0.9, -1.15),
+          radius: 1.4,
+          colors: [accent.withValues(alpha: 0.40), accent.withValues(alpha: 0.0)],
+        ),
+      ),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: RadialGradient(
+            center: const Alignment(1.0, -0.9),
+            radius: 1.0,
+            colors: [second.withValues(alpha: 0.22), second.withValues(alpha: 0.0)],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Envuelve cada pantalla de listas: pone el [AmbientBackground] detrás y,
+/// en pantallas anchas, centra la pantalla (barra de arriba incluida) en
 /// una columna cómoda de leer, en vez de estirar listas y textos de punta
-/// a punta. En el teléfono no hace nada.
+/// a punta.
 class ReadableFrame extends StatelessWidget {
   final Widget child;
   final double maxWidth;
@@ -79,11 +115,23 @@ class ReadableFrame extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Scaffold y barra transparentes para que se vea el fondo.
+    final see = Theme(
+      data: theme.copyWith(
+        scaffoldBackgroundColor: Colors.transparent,
+        appBarTheme: theme.appBarTheme.copyWith(backgroundColor: Colors.transparent),
+      ),
+      child: child,
+    );
     return LayoutBuilder(builder: (context, constraints) {
-      if (constraints.maxWidth <= maxWidth + 48) return child;
-      return ColoredBox(
-        color: AppTheme.background,
-        child: Center(child: SizedBox(width: maxWidth, child: child)),
+      final wide = constraints.maxWidth > maxWidth + 48;
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          const AmbientBackground(),
+          if (wide) Center(child: SizedBox(width: maxWidth, child: see)) else see,
+        ],
       );
     });
   }

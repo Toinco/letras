@@ -215,18 +215,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   // ---------------------------------------------------------------- UI
 
-  Widget _section(String title) => Padding(
-        padding: const EdgeInsets.only(top: 28, bottom: 4),
-        child: Text(
-          title.toUpperCase(),
-          style: TextStyle(
-            color: Theme.of(context).colorScheme.primary,
-            fontWeight: FontWeight.w700,
-            fontSize: 12,
-            letterSpacing: 0.6,
-          ),
-        ),
-      );
+  Widget _section(String title) => _SectionTitle(title);
+
+  /// Lo que viene después de cada título va en una tarjeta propia, como los
+  /// grupos de Ajustes del iPhone (antes era todo una sola lista plana).
+  List<Widget> _grouped(List<Widget> children) {
+    final out = <Widget>[];
+    List<Widget>? group;
+    void close() {
+      if (group != null && group!.isNotEmpty) out.add(_SettingsCard(children: group!));
+      group = null;
+    }
+
+    for (final w in children) {
+      if (w is _SectionTitle) {
+        close();
+        out.add(w);
+        group = [];
+      } else if (group != null) {
+        group!.add(w);
+      } else {
+        out.add(w);
+      }
+    }
+    close();
+    return out;
+  }
 
   Widget _hint(String text) => Padding(
         padding: const EdgeInsets.only(top: 4, bottom: 8),
@@ -279,7 +293,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
         appBar: AppBar(title: const Text('Ajustes')),
         body: ListView(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-          children: [
+          children: _grouped([
             // ------------------------------------------------ Letra
             _section('Letra'),
             ValueListenableBuilder<double>(
@@ -604,9 +618,74 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
               )
             else if (_version.isNotEmpty)
               _hint('Versión $_version'),
-          ],
+          ]),
         ),
       ),
+    );
+  }
+}
+
+/// Título de un grupo de ajustes, con su ícono.
+class _SectionTitle extends StatelessWidget {
+  final String title;
+
+  const _SectionTitle(this.title);
+
+  static const _icons = <String, IconData>{
+    'Letra': Icons.lyrics_rounded,
+    'Traducción y pronunciación': Icons.translate_rounded,
+    'Letra fuera de la app': Icons.picture_in_picture_alt_rounded,
+    'Detección y reproducción': Icons.graphic_eq_rounded,
+    'Fuentes de letras': Icons.library_books_rounded,
+    'Reconocimiento por micrófono (AudD)': Icons.mic_rounded,
+    'Genius (sección "Info")': Icons.info_rounded,
+    'Spotify': Icons.queue_music_rounded,
+    'Acerca de': Icons.favorite_rounded,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(top: 28, bottom: 10, left: 4),
+      child: Row(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(_icons[title] ?? Icons.tune_rounded, size: 15, color: accent),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, letterSpacing: -0.1),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tarjeta que agrupa los ajustes de una sección.
+class _SettingsCard extends StatelessWidget {
+  final List<Widget> children;
+
+  const _SettingsCard({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 6, 12, 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children),
     );
   }
 }

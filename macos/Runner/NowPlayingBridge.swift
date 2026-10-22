@@ -1,5 +1,6 @@
 import Cocoa
 import FlutterMacOS
+import ImageIO
 
 /// Versión Mac de lo que en Android hace MediaSessionBridge: averigua qué
 /// suena en Spotify o en Música (Apple Music) preguntándoles por AppleScript,
@@ -64,6 +65,8 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     """
 
   private let queue = DispatchQueue(label: "io.letras.app.nowplaying")
+  /// La carátula va aparte: así nunca demora el aviso de qué canción suena.
+  private let artQueue = DispatchQueue(label: "io.letras.app.artwork")
   private var sink: FlutterEventSink?
   private var timer: Timer?
   private var compiled: [String: NSAppleScript] = [:]
@@ -271,7 +274,6 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
 
   private func emit(_ s: State) {
     lastEmitted = s
-    if artwork?.key != s.key { loadArtwork(for: s) }
     var map: [String: Any] = [
       "title": s.title,
       "artist": s.artist,
@@ -293,22 +295,32 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
       self.current = (s.title, s.artist, s.positionMs, s.isPlaying, readAt)
       self.sink?(map)
     }
+    // Después de avisar la canción (sin esperar la carátula).
+    if artwork?.key != s.key { loadArtwork(for: s) }
   }
 
-  /// La carátula se busca una vez por canción y, cuando llega, se vuelve a
-  /// mandar el estado con ella.
+  /// La carátula se busca una vez por canción, en otra cola, y cuando
+  /// llega se vuelve a mandar el estado con ella. Se achica a 600 px: Música
+  /// la entrega en tamaño original (a veces varios MB) y mandarla entera en
+  /// cada actualización hacía todo más lento.
   private func loadArtwork(for s: State) {
     guard artworkLoading != s.key else { return }
     artworkLoading = s.key
     let done: (Data?) -> Void = { data in
+      let small = data.flatMap(Self.shrink)
       self.queue.async {
         self.artworkLoading = nil
-        self.artwork = (s.key, data)
+        self.artwork = (s.key, small)
         if self.lastEmitted?.key == s.key { self.pollNow(force: true) }
       }
     }
     if s.bundleId == "com.apple.Music" {
-      done(run(Self.musicArtworkScript)?.data)
+      artQueue.async {
+        var error: NSDictionary?
+        let data = NSAppleScript(source: Self.musicArtworkScript)?
+          .executeAndReturnError(&error).data
+        done(error == nil ? data : nil)
+      }
     } else if let raw = s.artworkUrl, let url = URL(string: raw), url.scheme == "https" {
       URLSession.shared.dataTask(with: url) { data, response, _ in
         let ok = (response as? HTTPURLResponse)?.statusCode == 200
@@ -317,5 +329,22 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     } else {
       done(nil)
     }
+  }
+
+  /// JPEG de 600 px como máximo.
+  private static func shrink(_ data: Data) -> Data? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceThumbnailMaxPixelSize: 600,
+    ]
+    guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    else { return nil }
+    let out = NSMutableData()
+    guard let dest = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil)
+    else { return nil }
+    CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.88] as CFDictionary)
+    return CGImageDestinationFinalize(dest) ? out as Data : nil
   }
 }

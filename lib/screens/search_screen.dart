@@ -23,6 +23,7 @@ import 'lyrics_screen.dart';
 import 'settings_screen.dart';
 import '../providers.dart';
 import '../widgets/desktop.dart';
+import '../widgets/empty_state.dart';
 
 /// Buscador con 3 pestañas: Canciones, Álbumes y Artistas — un solo campo
 /// de texto dispara las tres búsquedas (más la búsqueda entre tus letras
@@ -136,16 +137,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
 
   Widget _buildHistory() {
     if (_history.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Busca una canción, un álbum o un artista. Pegar un pedazo de la '
-            'letra también busca entre tus letras ya descargadas.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: AppTheme.textSecondary),
-          ),
-        ),
+      return const EmptyState(
+        icon: Icons.manage_search_rounded,
+        title: 'Busca cualquier canción',
+        message: 'Por título, álbum o artista. Pegar un pedazo de la letra también '
+            'busca entre tus letras ya descargadas.',
       );
     }
     return ListView(
@@ -436,9 +432,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
     if (_loading) return const Center(child: CircularProgressIndicator());
     final hasResults = _localResults.isNotEmpty || _onlineResults.isNotEmpty;
     if (!hasResults) {
-      return const Center(
-        child:
-            Text('No se encontraron canciones.', style: TextStyle(color: AppTheme.textSecondary)),
+      return const EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'No se encontraron canciones',
+        message: 'Prueba con menos palabras o solo con el título.',
       );
     }
     return Column(
@@ -520,9 +517,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   Widget _buildAlbumsTab() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_albumResults.isEmpty) {
-      return const Center(
-        child: Text('No se encontraron álbumes.', style: TextStyle(color: AppTheme.textSecondary)),
-      );
+      return const EmptyState(icon: Icons.album_rounded, title: 'No se encontraron álbumes');
     }
     return ListView.builder(
       itemCount: _albumResults.length,
@@ -541,10 +536,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   Widget _buildArtistsTab() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_artistResults.isEmpty) {
-      return const Center(
-        child:
-            Text('No se encontraron artistas.', style: TextStyle(color: AppTheme.textSecondary)),
-      );
+      return const EmptyState(icon: Icons.person_search_rounded, title: 'No se encontraron artistas');
     }
     return ListView.builder(
       itemCount: _artistResults.length,

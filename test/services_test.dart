@@ -112,6 +112,25 @@ void main() {
       expect(best.hasSyncedLyrics, isTrue);
     });
 
+    test('no espera la búsqueda lenta si la exacta ya coincide en todo', () async {
+      AppHttp.client = MockClient((req) async {
+        if (req.url.path == '/api/get') {
+          return _json(_lrclibTrack(id: 7, title: 'Save Your Tears', duration: 215));
+        }
+        // La búsqueda amplia de LRCLIB a veces tarda varios segundos.
+        await Future<void>.delayed(const Duration(seconds: 3));
+        return _json(<Object>[]);
+      });
+      final watch = Stopwatch()..start();
+      final best = await LrclibService().getBestMatch(
+        trackName: 'Save Your Tears',
+        artistName: 'The Weeknd',
+        durationSeconds: 215,
+      );
+      expect(best!.lrclibId, 7);
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+
     test('si nada se parece, devuelve null en vez de otra canción', () async {
       AppHttp.client = MockClient((req) async {
         if (req.url.path == '/api/get') return http.Response('{}', 404);
@@ -127,6 +146,45 @@ void main() {
   });
 
   group('LyricsFinder', () {
+    test('si LRCLIB está saturado, no deja esperando: usa NetEase', () async {
+      LyricsFinder.lrclibPatience = const Duration(milliseconds: 200);
+      addTearDown(() => LyricsFinder.lrclibPatience = const Duration(milliseconds: 2500));
+      AppHttp.client = MockClient((req) async {
+        switch (req.url.host) {
+          case 'lrclib.net':
+            // Colgado (como cuando está saturado).
+            await Future<void>.delayed(const Duration(seconds: 4));
+            return http.Response('{}', 503);
+          case 'music.163.com':
+            if (req.url.path == '/api/search/get') {
+              return _json({
+                'result': {
+                  'songs': [
+                    {
+                      'id': 5,
+                      'name': 'Lenta',
+                      'artists': [
+                        {'name': 'Alguien'},
+                      ],
+                      'duration': 180000,
+                    },
+                  ],
+                },
+              });
+            }
+            return _json({
+              'lrc': {'lyric': '[00:02.00]Uno\n[00:04.00]Dos'},
+            });
+        }
+        return http.Response('', 404);
+      });
+      final watch = Stopwatch()..start();
+      final r = await LyricsFinder().find('Lenta', 'Alguien', durationSeconds: 180);
+      expect(r!.source, LyricsSource.netease);
+      expect(r.syncedLyrics.map((l) => l.text), ['Uno', 'Dos']);
+      expect(watch.elapsed, lessThan(const Duration(seconds: 2)));
+    });
+
     test('si LRCLIB solo tiene letra plana, prueba NetEase sincronizada', () async {
       AppHttp.client = MockClient((req) async {
         switch (req.url.host) {

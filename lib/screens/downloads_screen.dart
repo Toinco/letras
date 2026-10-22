@@ -16,6 +16,7 @@ import 'playlist_screen.dart';
 import 'stats_screen.dart';
 import '../providers.dart';
 import '../widgets/desktop.dart';
+import '../widgets/empty_state.dart';
 
 enum _DownloadsFilterMode { all, album, playlists }
 
@@ -339,21 +340,15 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
         body: _loading
             ? const Center(child: CircularProgressIndicator())
             : _downloads.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Todavía no descargaste ninguna letra.',
-                          style: TextStyle(color: AppTheme.textSecondary),
-                        ),
-                        const SizedBox(height: 12),
-                        TextButton.icon(
-                          onPressed: _busy ? null : _import,
-                          icon: const Icon(Icons.unarchive_rounded),
-                          label: const Text('Importar una copia de seguridad'),
-                        ),
-                      ],
+                ? EmptyState(
+                    icon: Icons.download_rounded,
+                    title: 'Todavía no hay descargas',
+                    message: 'Las letras que descargues se ven sin conexión, con su '
+                        'traducción. Toca el ícono de descarga mientras suena una canción.',
+                    action: TextButton.icon(
+                      onPressed: _busy ? null : _import,
+                      icon: const Icon(Icons.unarchive_rounded),
+                      label: const Text('Importar una copia de seguridad'),
                     ),
                   )
                 : Column(

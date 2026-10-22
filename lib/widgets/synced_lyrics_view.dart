@@ -75,6 +75,9 @@ class SyncedLyricsView extends StatefulWidget {
   /// Solo la línea actual, enorme.
   final bool focusMode;
 
+  /// Agranda la letra (pantalla completa).
+  final double sizeBoost;
+
   /// Si viene, la vista abre con el buscador ya cargado con este texto y
   /// resalta la primera línea que coincide (búsqueda desde Descargas).
   final String? initialSearchQuery;
@@ -93,6 +96,7 @@ class SyncedLyricsView extends StatefulWidget {
     this.artworkBytes,
     this.showSearchButton = true,
     this.focusMode = false,
+    this.sizeBoost = 1,
     this.initialSearchQuery,
   });
 
@@ -512,7 +516,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
 
   Widget _buildSynced(double scale) {
     return LayoutBuilder(builder: (context, outer) {
-      final fontSize = 27.0 * scale * _widthScale(outer.maxWidth);
+      final fontSize = 27.0 * scale * _widthScale(outer.maxWidth) * widget.sizeBoost;
       // Renglones de un largo cómodo: los coros (a la derecha) quedan cerca
       // de la línea principal en vez de irse al borde de la ventana.
       final maxLineWidth = math.max(fontSize * 20, 360.0);

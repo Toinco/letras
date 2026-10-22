@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -13,6 +13,7 @@ import '../providers.dart';
 import '../services/now_playing_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
+import '../utils/platform.dart';
 import '../widgets/artwork_thumb.dart';
 import '../widgets/desktop.dart';
 import '../widgets/lyrics_picker_sheet.dart';
@@ -31,6 +32,11 @@ import 'lyrics_screen.dart';
 /// dibuja y reenvía lo que toca el usuario.
 class NowPlayingScreen extends ConsumerStatefulWidget {
   const NowPlayingScreen({super.key});
+
+  /// Modo pantalla completa (como Música de la Mac): solo carátula,
+  /// controles y letra grande, sin menú lateral. HomeShell lo escucha para
+  /// esconder el menú.
+  static final ValueNotifier<bool> immersive = ValueNotifier(false);
 
   @override
   ConsumerState<NowPlayingScreen> createState() => _NowPlayingScreenState();
@@ -56,6 +62,59 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
     });
     _c.addListener(_updateVisibility);
+    NowPlayingScreen.immersive.addListener(_onImmersiveChanged);
+    MacWindow.fullScreen.addListener(_onFullScreenChanged);
+  }
+
+  // ------------------------------------------------- pantalla completa
+
+  /// Si al entrar al modo pantalla completa pusimos la ventana de la Mac en
+  /// pantalla completa (para devolverla como estaba al salir).
+  bool _enteredWindowFullScreen = false;
+  bool _chromeVisible = true;
+  Timer? _idleTimer;
+
+  /// Se puede prender desde acá o con ⇧⌘F (HomeShell): en los dos casos
+  /// la ventana de la Mac pasa a pantalla completa.
+  void _onImmersiveChanged() {
+    if (!mounted) return;
+    final on = NowPlayingScreen.immersive.value;
+    if (on && isMac && !MacWindow.fullScreen.value) {
+      _enteredWindowFullScreen = true;
+      MacWindow.toggleFullScreen();
+    }
+    if (!on) {
+      _idleTimer?.cancel();
+      _chromeVisible = true;
+      if (_enteredWindowFullScreen && MacWindow.fullScreen.value) MacWindow.toggleFullScreen();
+      _enteredWindowFullScreen = false;
+    }
+    setState(() {});
+    if (on) _poke();
+  }
+
+  void _enterImmersive() => NowPlayingScreen.immersive.value = true;
+
+  void _exitImmersive() => NowPlayingScreen.immersive.value = false;
+
+  /// Si salen de la pantalla completa de la Mac (botón verde, ⌃⌘F), también
+  /// se sale del modo.
+  void _onFullScreenChanged() {
+    if (!MacWindow.fullScreen.value &&
+        _enteredWindowFullScreen &&
+        NowPlayingScreen.immersive.value) {
+      _enteredWindowFullScreen = false;
+      _exitImmersive();
+    }
+  }
+
+  /// Los botones se esconden (y el puntero también) si no se mueve el mouse.
+  void _poke() {
+    if (!_chromeVisible) setState(() => _chromeVisible = true);
+    _idleTimer?.cancel();
+    _idleTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _chromeVisible = false);
+    });
   }
 
   @override
@@ -82,6 +141,9 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     SettingsService.keepScreenOn.removeListener(_updateVisibility);
     _c.removeListener(_updateVisibility);
     _messagesSub?.cancel();
+    _idleTimer?.cancel();
+    NowPlayingScreen.immersive.removeListener(_onImmersiveChanged);
+    MacWindow.fullScreen.removeListener(_onFullScreenChanged);
     WakelockPlus.disable().catchError((_) {});
     super.dispose();
   }
@@ -269,6 +331,15 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         MediaQuery.of(context).orientation == Orientation.landscape || isWideLayout(context);
     final showArtBackground = (c.accessGranted || c.continuousMic) && track != null;
 
+    if (NowPlayingScreen.immersive.value) {
+      if (track == null) {
+        // Se terminó la música: volvemos a la vista normal.
+        WidgetsBinding.instance.addPostFrameCallback((_) => _exitImmersive());
+      } else {
+        return _buildImmersive(c, track);
+      }
+    }
+
     return Scaffold(
       extendBodyBehindAppBar: showArtBackground,
       backgroundColor: AppTheme.background,
@@ -444,7 +515,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     );
   }
 
-  Widget _buildLyricsArea(NowPlayingController c, {required bool compact}) {
+  Widget _buildLyricsArea(NowPlayingController c, {required bool compact, double sizeBoost = 1}) {
     if (c.loadingLyrics) {
       return const Center(child: CircularProgressIndicator(color: Colors.white70));
     }
@@ -501,6 +572,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
       song: track.toSong(),
       artworkBytes: track.albumArt,
       showSearchButton: !compact,
+      sizeBoost: sizeBoost,
     );
   }
 
@@ -748,6 +820,12 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
                                 : () => c.download(),
                           ),
                           _buildAppBarActions(c).last, // micrófono
+                          if (roomy)
+                            IconButton(
+                              tooltip: 'Pantalla completa (⇧⌘F)',
+                              icon: const Icon(Icons.open_in_full_rounded, color: Colors.white70),
+                              onPressed: _enterImmersive,
+                            ),
                           IconButton(
                             tooltip: 'Más opciones',
                             icon: const Icon(Icons.more_horiz_rounded, color: Colors.white70),
@@ -776,6 +854,127 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
         ],
       );
     });
+  }
+
+  /// Pantalla completa estilo Música: carátula y controles a la izquierda,
+  /// letra enorme a la derecha, fondo que se mueve despacio. Esc sale.
+  Widget _buildImmersive(NowPlayingController c, NowPlayingTrack track) {
+    final size = MediaQuery.sizeOf(context);
+    final artSize = math.min(size.width * 0.3, size.height * 0.52).clamp(200.0, 620.0);
+    final chrome = _chromeVisible;
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.escape): _exitImmersive,
+        SingleActivator(LogicalKeyboardKey.keyF, meta: isMac, control: !isMac, shift: true):
+            _exitImmersive,
+      },
+      child: Focus(
+        autofocus: true,
+        child: MouseRegion(
+          cursor: chrome ? MouseCursor.defer : SystemMouseCursors.none,
+          onHover: (_) => _poke(),
+          child: Scaffold(
+            backgroundColor: Colors.black,
+            body: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRect(child: _ArtBackground(bytes: track.albumArt, animated: true)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          child: SizedBox(
+                            width: artSize,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _CoverArt(track: track, size: artSize),
+                                const SizedBox(height: 26),
+                                Row(
+                                  children: [
+                                    Expanded(child: _TrackTitle(track: track, large: true)),
+                                    AnimatedOpacity(
+                                      opacity: chrome ? 1 : 0,
+                                      duration: const Duration(milliseconds: 300),
+                                      child: _GlassButton(
+                                        icon: Icons.more_horiz_rounded,
+                                        tooltip: 'Más opciones',
+                                        onPressed: () => _openSongMenu(track),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                _buildTransport(c, track, compact: false),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 48),
+                        child: _buildLyricsArea(c, compact: true, sizeBoost: 1.45),
+                      ),
+                    ),
+                  ],
+                ),
+                // Salir, arriba a la izquierda (al lado de donde aparecen los
+                // tres botones de la ventana).
+                Positioned(
+                  top: 18,
+                  left: 22,
+                  child: AnimatedOpacity(
+                    opacity: chrome ? 1 : 0,
+                    duration: const Duration(milliseconds: 300),
+                    child: IgnorePointer(
+                      ignoring: !chrome,
+                      child: _GlassButton(
+                        icon: Icons.close_fullscreen_rounded,
+                        tooltip: 'Salir de pantalla completa (Esc)',
+                        onPressed: _exitImmersive,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Botón redondo translúcido, como los de Música en pantalla completa.
+class _GlassButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _GlassButton({required this.icon, required this.tooltip, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.14),
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onPressed,
+          child: Padding(
+            padding: const EdgeInsets.all(9),
+            child: Icon(icon, size: 20, color: Colors.white),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -923,15 +1122,44 @@ class _TrackTitle extends StatelessWidget {
 }
 
 /// Fondo con la carátula muy difuminada y oscurecida, como en Apple Music.
-/// Cambia con un fundido suave cuando cambia la canción.
-class _ArtBackground extends StatelessWidget {
+/// Cambia con un fundido suave cuando cambia la canción. Con [animated]
+/// (pantalla completa) la imagen gira y respira despacio, como en Música.
+class _ArtBackground extends StatefulWidget {
   final Uint8List? bytes;
+  final bool animated;
 
-  const _ArtBackground({this.bytes});
+  const _ArtBackground({this.bytes, this.animated = false});
+
+  @override
+  State<_ArtBackground> createState() => _ArtBackgroundState();
+}
+
+class _ArtBackgroundState extends State<_ArtBackground> with SingleTickerProviderStateMixin {
+  late final AnimationController _motion =
+      AnimationController(vsync: this, duration: const Duration(seconds: 40));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.animated) _motion.repeat();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ArtBackground oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.animated && !_motion.isAnimating) _motion.repeat();
+    if (!widget.animated && _motion.isAnimating) _motion.stop();
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final art = bytes;
+    final art = widget.bytes;
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 700),
       child: art == null
@@ -955,8 +1183,18 @@ class _ArtBackground extends StatelessWidget {
                 ImageFiltered(
                   imageFilter:
                       ui.ImageFilter.blur(sigmaX: 60, sigmaY: 60, tileMode: TileMode.mirror),
-                  child: Transform.scale(
-                    scale: 1.4,
+                  child: AnimatedBuilder(
+                    animation: _motion,
+                    builder: (context, child) {
+                      final t = _motion.value * 2 * math.pi;
+                      return Transform.rotate(
+                        angle: widget.animated ? t : 0,
+                        child: Transform.scale(
+                          scale: widget.animated ? 1.9 + 0.15 * math.sin(t * 2) : 1.4,
+                          child: child,
+                        ),
+                      );
+                    },
                     child: Image.memory(art, fit: BoxFit.cover, gaplessPlayback: true),
                   ),
                 ),

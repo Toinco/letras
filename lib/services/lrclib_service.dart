@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../models/lyrics_result.dart';
@@ -45,7 +46,10 @@ class LrclibService {
       if (albumName != null && albumName.trim().isNotEmpty) 'album_name': albumName,
     });
 
-    final response = await AppHttp.get(uri, headers: _headers, tag: 'lrclib');
+    // Espera corta: cuando LRCLIB está saturado es mejor rendirse rápido
+    // (LyricsFinder prueba otra fuente) que dejar la pantalla cargando.
+    final response = await AppHttp.get(uri,
+        headers: _headers, tag: 'lrclib', timeout: _lookupTimeout, retries: 1);
     if (response.statusCode != 200) {
       throw Exception('LRCLIB respondió ${response.statusCode}');
     }
@@ -157,33 +161,66 @@ class LrclibService {
       );
     }
 
-    final exactResults = await Future.wait(exactFutures);
-    final exact = exactResults.firstWhere((r) => r != null, orElse: () => null);
+    // Todas las búsquedas juntas, eligiendo la mejor (lo de siempre).
+    Future<LyricsResult?> pickBest() async {
+      final exactResults = await Future.wait(exactFutures);
+      final exact = exactResults.firstWhere((r) => r != null, orElse: () => null);
 
-    final searchResultLists = await Future.wait(searchFutures);
-    final flexible = <LyricsResult>[for (final list in searchResultLists) ...list];
+      final searchResultLists = await Future.wait(searchFutures);
+      final flexible = <LyricsResult>[for (final list in searchResultLists) ...list];
 
-    // Si además de la coincidencia exacta hay resultados flexibles, elegimos
-    // entre todos igual (a veces la "exacta" es una versión instrumental o
-    // sin letra sincronizada, y una flexible es mejor).
-    final candidates = <LyricsResult>[if (exact != null) exact, ...flexible];
-    if (candidates.isEmpty) {
-      if (!hadNetworkError) _bestMatchCache[cacheKey] = null;
-      return null;
+      // Si además de la coincidencia exacta hay resultados flexibles, elegimos
+      // entre todos igual (a veces la "exacta" es una versión instrumental o
+      // sin letra sincronizada, y una flexible es mejor).
+      final candidates = <LyricsResult>[if (exact != null) exact, ...flexible];
+      if (candidates.isEmpty) {
+        if (!hadNetworkError) _bestMatchCache[cacheKey] = null;
+        return null;
+      }
+
+      candidates.sort((a, b) => _matchScore(b, trackName, artistName, durationSeconds)
+          .compareTo(_matchScore(a, trackName, artistName, durationSeconds)));
+
+      final best = candidates.first;
+      // Un candidato que no se parece en nada (ni título ni artista) es peor
+      // que no mostrar nada: antes aparecía la letra de otra canción.
+      if (!_plausible(best, trackName, durationSeconds)) {
+        if (!hadNetworkError) _bestMatchCache[cacheKey] = null;
+        return null;
+      }
+      _bestMatchCache[cacheKey] = best;
+      return best;
     }
 
-    candidates.sort((a, b) => _matchScore(b, trackName, artistName, durationSeconds)
-        .compareTo(_matchScore(a, trackName, artistName, durationSeconds)));
-
-    final best = candidates.first;
-    // Un candidato que no se parece en nada (ni título ni artista) es peor
-    // que no mostrar nada: antes aparecía la letra de otra canción.
-    if (!_plausible(best, trackName, durationSeconds)) {
-      if (!hadNetworkError) _bestMatchCache[cacheKey] = null;
-      return null;
+    // Pero si llega antes una que coincide en todo (título, artista,
+    // duración, sincronizada), no esperamos a las otras más que un
+    // instante: la búsqueda amplia de LRCLIB a veces tarda segundos.
+    final all = pickBest();
+    final early = Completer<LyricsResult>();
+    void offer(LyricsResult? r) {
+      if (r != null && !early.isCompleted && _confident(r, trackName, artistName, durationSeconds)) {
+        early.complete(r);
+      }
     }
-    _bestMatchCache[cacheKey] = best;
-    return best;
+
+    for (final f in exactFutures) {
+      f.then(offer, onError: (_) {});
+    }
+    for (final f in searchFutures) {
+      f.then((list) => list.forEach(offer), onError: (_) {});
+    }
+    final first = await Future.any<(LyricsResult?, bool)>([
+      all.then((r) => (r, true)),
+      early.future.then((r) => (r, false)),
+    ]);
+    if (first.$2) return first.$1;
+    // Un ratito más por si las otras traen algo mejor (tiempos por palabra).
+    // Cuando terminen, la mejor queda en caché para la próxima vez.
+    final quick = first.$1;
+    _bestMatchCache.putIfAbsent(cacheKey, () => quick);
+    return all
+        .timeout(_earlyGrace, onTimeout: () => quick)
+        .then((r) => r ?? quick, onError: (_) => quick);
   }
 
   /// Puntúa qué tan bien [r] coincide con el título/artista/duración
@@ -223,6 +260,20 @@ class LrclibService {
     return score;
   }
 
+  static const _lookupTimeout = Duration(seconds: 6);
+
+  /// Cuánto más se esperan las otras búsquedas cuando ya llegó una
+  /// coincidencia segura.
+  static const _earlyGrace = Duration(milliseconds: 500);
+
+  /// Coincide en todo: mismo título y artista, sincronizada y (si se sabe)
+  /// la misma duración. Con eso ya se puede mostrar sin esperar al resto.
+  bool _confident(LyricsResult r, String title, String artist, int? durationSeconds) {
+    if (!r.hasSyncedLyrics) return false;
+    final knowsDuration = durationSeconds != null && durationSeconds > 0;
+    return _matchScore(r, title, artist, durationSeconds) >= (knowsDuration ? 98 : 90);
+  }
+
   /// El título tiene que parecerse al menos un poco, salvo que la duración
   /// coincida casi exacta (títulos traducidos/transliterados, etc.).
   bool _plausible(LyricsResult r, String title, int? durationSeconds) {
@@ -248,7 +299,8 @@ class LrclibService {
         if (albumName != null && albumName.trim().isNotEmpty) 'album_name': albumName,
         if (durationSeconds != null && durationSeconds > 0) 'duration': durationSeconds.toString(),
       });
-      final response = await AppHttp.get(uri, headers: _headers, tag: 'lrclib', retries: 1);
+      final response = await AppHttp.get(uri,
+          headers: _headers, tag: 'lrclib', timeout: _lookupTimeout, retries: 1);
       if (response.statusCode == 200) {
         return fromLrclibJson(jsonDecode(utf8.decode(response.bodyBytes)));
       }

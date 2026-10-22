@@ -85,7 +85,9 @@ de lo que suena.
 
 En la Mac, la letra fuera de la app va en la **barra de menú**, junto al reloj.
 Al agrandar la ventana pasa al diseño de escritorio (carátula grande al costado
-de la letra y menú lateral), y el modo karaoke usa la pantalla completa.
+de la letra y menú lateral). El botón ⤢ (o ⇧⌘F) abre la pantalla completa: solo
+carátula, controles y la letra en grande, como en Música. El modo karaoke también
+usa la pantalla completa.
 
 | Atajo | Qué hace |
 | --- | --- |
@@ -95,6 +97,7 @@ de la letra y menú lateral), y el modo karaoke usa la pantalla completa.
 | ⌘ 1 / ⌘ 2 / ⌘ 3 | Reproduciendo / Buscar / Descargas |
 | ⌘ F | Buscar |
 | ⌘ , | Ajustes |
+| ⇧ ⌘ F | Pantalla completa (Esc sale) |
 
 Las versiones nuevas se instalan desde la misma app:
 **Ajustes → Buscar actualizaciones**.

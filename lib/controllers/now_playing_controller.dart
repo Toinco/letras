@@ -15,6 +15,7 @@ import '../services/now_playing_service.dart';
 import '../services/settings_service.dart';
 import '../services/stats_service.dart';
 import '../services/translation_service.dart';
+import '../utils/platform.dart';
 
 /// Resultado de reconocer una canción con el micrófono (una sola vez).
 class MicRecognition {
@@ -235,7 +236,8 @@ class NowPlayingController extends ChangeNotifier with WidgetsBindingObserver {
       _lyricsDebounce?.cancel();
       final title = t.title;
       final artist = t.artist;
-      _lyricsDebounce = Timer(const Duration(milliseconds: 350), () {
+      // En la Mac los datos llegan completos de una vez: casi no hace falta esperar.
+      _lyricsDebounce = Timer(Duration(milliseconds: isMac ? 80 : 350), () {
         final now = track;
         if (_disposed || now == null) return;
         if (now.title == title && now.artist == artist) {

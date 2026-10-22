@@ -74,6 +74,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   }
 
   void _select(int i) {
+    if (i != 0) NowPlayingScreen.immersive.value = false;
     setState(() {
       _index = i;
       _visited.add(i);
@@ -82,6 +83,7 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   }
 
   bool _immersive = false;
+  final _pagesKey = GlobalKey();
 
   /// En horizontal, en Reproduciendo, se esconden la barra de abajo y las
   /// barras del sistema para que la letra tenga toda la pantalla.
@@ -116,6 +118,12 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         if (c.lyrics?.hasSyncedLyrics ?? false) c.toggleTranslation();
       case 'settings':
         _openSettings();
+      case 'immersive':
+        // Solo con algo sonando y en una ventana ancha.
+        if (c.track != null && isWideLayout(context)) {
+          _select(0);
+          NowPlayingScreen.immersive.value = !NowPlayingScreen.immersive.value;
+        }
       case 'tab0':
         _select(0);
       case 'tab1':
@@ -139,6 +147,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
       cmd(LogicalKeyboardKey.digit2): const _ShellIntent('tab1'),
       cmd(LogicalKeyboardKey.digit3): const _ShellIntent('tab2'),
       cmd(LogicalKeyboardKey.keyF): const _ShellIntent('tab1'),
+      SingleActivator(LogicalKeyboardKey.keyF, meta: isMac, control: !isMac, shift: true):
+          const _ShellIntent('immersive'),
     };
   }
 
@@ -150,6 +160,9 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
     final hideChrome = landscape && _index == 0 && !isMac && !wide;
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncImmersive(hideChrome));
     final pages = IndexedStack(
+      // Con clave global: al entrar o salir de pantalla completa (o pasar de
+      // barra abajo a menú lateral) las pestañas no se rearman de cero.
+      key: _pagesKey,
       index: _index,
       children: [
         for (var i = 0; i < _builders.length; i++)
@@ -162,7 +175,15 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
         actions: {_ShellIntent: _ShellAction(_onShortcut)},
         child: Focus(
           autofocus: true,
-          child: wide ? _buildWide(pages) : _buildNarrow(pages, hideChrome),
+          child: ValueListenableBuilder<bool>(
+            valueListenable: NowPlayingScreen.immersive,
+            // En pantalla completa (Reproduciendo) no va el menú lateral.
+            builder: (context, immersive, _) => immersive && _index == 0
+                ? pages
+                : wide
+                    ? _buildWide(pages)
+                    : _buildNarrow(pages, hideChrome),
+          ),
         ),
       ),
     );

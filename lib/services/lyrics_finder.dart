@@ -65,35 +65,62 @@ class LyricsFinder {
   static bool _isNetwork(Object e) =>
       e is SocketException || e is TimeoutException || e is HttpException;
 
+  /// Cuánto se espera a LRCLIB antes de largar NetEase en paralelo.
+  static Duration lrclibPatience = const Duration(milliseconds: 2500);
+
   Future<({LyricsResult? result, bool transient})> _find(
       String title, String artist, int? durationSeconds) async {
     Object? networkError;
-    LyricsResult? lrclib;
-    try {
-      lrclib = await _lrclib.getBestMatch(
-        trackName: title,
-        artistName: artist,
-        durationSeconds: durationSeconds,
-      );
-    } catch (e) {
-      if (_isNetwork(e)) networkError = e;
+    final extra = SettingsService.extraSources.value;
+
+    // NetEase se pide como mucho una vez (puede arrancar antes, si LRCLIB
+    // tarda, y después se reusa).
+    Future<LyricsResult?>? neteaseFuture;
+    Future<LyricsResult?> netease() => neteaseFuture ??= _netease
+            .find(title, artist, durationSeconds: durationSeconds)
+            .then<LyricsResult?>((r) => r, onError: (Object e, StackTrace st) {
+          if (_isNetwork(e)) networkError ??= e;
+          ErrorLog.record('netease', e, st);
+          return null;
+        });
+
+    var lrclibDone = false;
+    final lrclibFuture = _lrclib
+        .getBestMatch(trackName: title, artistName: artist, durationSeconds: durationSeconds)
+        .then<LyricsResult?>((r) => r, onError: (Object e) {
+      if (_isNetwork(e)) networkError ??= e;
+      return null;
+    }).whenComplete(() => lrclibDone = true);
+
+    LyricsResult? lrclib = await lrclibFuture.timeout(lrclibPatience, onTimeout: () => null);
+    if (!lrclibDone && extra) {
+      // LRCLIB anda lento (pasa cuando está saturado): probamos NetEase al
+      // mismo tiempo y nos quedamos con la primera letra sincronizada.
+      final first = await Future.any<(LyricsResult?, bool)>([
+        lrclibFuture.then((r) => (r, true)),
+        netease().then((r) => (r, false)),
+      ]);
+      if (first.$2) {
+        lrclib = first.$1;
+      } else if (first.$1?.hasSyncedLyrics ?? false) {
+        return (result: first.$1, transient: false);
+      } else {
+        lrclib = await lrclibFuture;
+      }
+    } else if (!lrclibDone) {
+      lrclib = await lrclibFuture;
     }
     if (lrclib != null && (lrclib.hasSyncedLyrics || lrclib.instrumental)) {
       return (result: lrclib, transient: false);
     }
 
-    if (SettingsService.extraSources.value) {
-      try {
-        final ne = await _netease.find(title, artist, durationSeconds: durationSeconds);
-        if (ne != null) return (result: ne, transient: false);
-      } catch (e, st) {
-        if (_isNetwork(e)) networkError ??= e;
-        ErrorLog.record('netease', e, st);
-      }
+    if (extra) {
+      final ne = await netease();
+      if (ne != null) return (result: ne, transient: false);
     }
     if (lrclib != null) return (result: lrclib, transient: networkError != null);
 
-    if (SettingsService.extraSources.value) {
+    if (extra) {
       try {
         final g = await _genius.find(title, artist);
         if (g != null) return (result: g, transient: networkError != null);
@@ -103,7 +130,8 @@ class LyricsFinder {
       }
     }
     // Sin conexión en todas: que se vea el error de red.
-    if (networkError != null) throw networkError;
+    final error = networkError;
+    if (error != null) throw error;
     return (result: null, transient: false);
   }
 
