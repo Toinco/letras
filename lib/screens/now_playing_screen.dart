@@ -63,30 +63,32 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     });
     _c.addListener(_updateVisibility);
     NowPlayingScreen.immersive.addListener(_onImmersiveChanged);
-    MacWindow.fullScreen.addListener(_onFullScreenChanged);
+    DesktopWindow.fullScreen.addListener(_onFullScreenChanged);
   }
 
   // ------------------------------------------------- pantalla completa
 
-  /// Si al entrar al modo pantalla completa pusimos la ventana de la Mac en
+  /// Si al entrar al modo pantalla completa pusimos la ventana de la compu en
   /// pantalla completa (para devolverla como estaba al salir).
   bool _enteredWindowFullScreen = false;
   bool _chromeVisible = true;
   Timer? _idleTimer;
 
   /// Se puede prender desde acá o con ⇧⌘F (HomeShell): en los dos casos
-  /// la ventana de la Mac pasa a pantalla completa.
+  /// la ventana de la compu pasa a pantalla completa.
   void _onImmersiveChanged() {
     if (!mounted) return;
     final on = NowPlayingScreen.immersive.value;
-    if (on && isMac && !MacWindow.fullScreen.value) {
+    if (on && isDesktop && !DesktopWindow.fullScreen.value) {
       _enteredWindowFullScreen = true;
-      MacWindow.toggleFullScreen();
+      DesktopWindow.toggleFullScreen();
     }
     if (!on) {
       _idleTimer?.cancel();
       _chromeVisible = true;
-      if (_enteredWindowFullScreen && MacWindow.fullScreen.value) MacWindow.toggleFullScreen();
+      if (_enteredWindowFullScreen && DesktopWindow.fullScreen.value) {
+        DesktopWindow.toggleFullScreen();
+      }
       _enteredWindowFullScreen = false;
     }
     setState(() {});
@@ -97,10 +99,10 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
 
   void _exitImmersive() => NowPlayingScreen.immersive.value = false;
 
-  /// Si salen de la pantalla completa de la Mac (botón verde, ⌃⌘F), también
+  /// Si salen de la pantalla completa de la ventana (botón verde, ⌃⌘F), también
   /// se sale del modo.
   void _onFullScreenChanged() {
-    if (!MacWindow.fullScreen.value &&
+    if (!DesktopWindow.fullScreen.value &&
         _enteredWindowFullScreen &&
         NowPlayingScreen.immersive.value) {
       _enteredWindowFullScreen = false;
@@ -143,7 +145,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
     _messagesSub?.cancel();
     _idleTimer?.cancel();
     NowPlayingScreen.immersive.removeListener(_onImmersiveChanged);
-    MacWindow.fullScreen.removeListener(_onFullScreenChanged);
+    DesktopWindow.fullScreen.removeListener(_onFullScreenChanged);
     WakelockPlus.disable().catchError((_) {});
     super.dispose();
   }

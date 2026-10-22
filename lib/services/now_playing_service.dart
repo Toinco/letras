@@ -81,7 +81,35 @@ class NowPlayingTrack {
   static String? appName(String? pkg) {
     if (pkg == null || pkg.isEmpty) return null;
     if (pkg == micPackage) return 'el micrófono';
-    return _knownApps[pkg];
+    return _knownApps[pkg] ?? _windowsAppName(pkg);
+  }
+
+  /// En Windows el "paquete" es el AppUserModelId de la app (por ejemplo
+  /// "Spotify.exe" o "SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify").
+  static const _windowsApps = {
+    'spotify': 'Spotify',
+    'applemusic': 'Apple Music',
+    'zunemusic': 'Reproductor multimedia',
+    'tidal': 'TIDAL',
+    'deezer': 'Deezer',
+    'amazonmusic': 'Amazon Music',
+    'youtube': 'YouTube Music',
+    'chrome': 'Chrome',
+    'msedge': 'Edge',
+    'firefox': 'Firefox',
+    'opera': 'Opera',
+    'brave': 'Brave',
+    'vlc': 'VLC',
+    'foobar2000': 'foobar2000',
+    'musicbee': 'MusicBee',
+  };
+
+  static String? _windowsAppName(String pkg) {
+    final id = pkg.toLowerCase();
+    for (final entry in _windowsApps.entries) {
+      if (id.contains(entry.key)) return entry.value;
+    }
+    return null;
   }
 
   /// Estima la posición actual interpolando el tiempo transcurrido desde
@@ -182,7 +210,8 @@ class PlayerInfo {
 /// Puente hacia el código nativo de Android (MainActivity.kt) que lee la
 /// sesión multimedia activa (MediaSessionManager) a través del permiso de
 /// "acceso a notificaciones". En la Mac responde NowPlayingBridge.swift,
-/// que les pregunta a Spotify y a Música.
+/// que les pregunta a Spotify y a Música; en Windows, now_playing_bridge.cpp,
+/// que lee los controles multimedia del sistema.
 class NowPlayingService {
   static const _methodChannel = MethodChannel('io.letras.app/now_playing');
   static const _eventChannel = EventChannel('io.letras.app/now_playing_stream');

@@ -274,6 +274,38 @@ flutter run -d macos --dart-define-from-file=config/dart_defines.json
   ```
   En GitHub Actions no pasa (usa otro Xcode).
 
+### En Windows
+
+```
+flutter run -d windows --dart-define-from-file=config/dart_defines.json
+```
+
+Hace falta Visual Studio 2022 con "Desarrollo para el escritorio con C++".
+Desde una Mac no se puede compilar para Windows: el workflow **CI** lo
+compila en cada push.
+
+- La detección está en `windows/runner/now_playing_bridge.cpp`: lee los
+  controles multimedia del sistema (`GlobalSystemMediaTransportControls`,
+  con C++/WinRT), así que ve Spotify, los navegadores y casi cualquier
+  reproductor sin pedir permisos. Corre en un hilo aparte y responde los
+  mismos canales que Android y la Mac. El "paquete" de cada app es su
+  AppUserModelId (`Spotify.exe`, `MSEdge`...); los nombres legibles salen
+  de `NowPlayingTrack.appName`. Windows no informa la próxima canción.
+- SQLite va por FFI (`sqflite_common_ffi`, la DLL la incluye el paquete
+  `sqlite3`); la base queda en `%APPDATA%\Letras\Letras`.
+- El login de Spotify vuelve con el mismo `io.letras.app://spotify-callback`:
+  `main.cpp` registra ese esquema en el registro del usuario en cada
+  arranque. Si Letras ya está abierta, la copia nueva le pasa el enlace
+  (`WM_COPYDATA`) y se cierra: nunca hay dos abiertas.
+- Pantalla completa: `flutter_window.cpp` saca el borde y ocupa el monitor
+  (mismo canal `io.letras.app/window` que la Mac, ver `DesktopWindow`).
+- Actualizaciones: baja `letras-X.Y.Z-windows.zip`, renombra los archivos
+  en uso a `.old` (Windows deja renombrar el `.exe` abierto, no pisarlo),
+  copia los nuevos y abre la versión nueva con `--actualizado`, que espera a
+  que se cierre la anterior. Los `.old` se borran al arrancar.
+- "Letra fuera de la app" todavía no existe en Windows (el ajuste no aparece).
+- Sin firma de código: SmartScreen avisa la primera vez.
+
 ## Notas y límites
 
 - La detección automática solo funciona con apps que exponen su música al
@@ -309,12 +341,13 @@ flutter run -d macos --dart-define-from-file=config/dart_defines.json
    ```
    git tag v1.1.0 && git push origin v1.1.0
    ```
-   GitHub Actions corre los tests, arma el APK firmado y la app de Mac
-   (`letras-X.Y.Z-macos.zip`) y los publica en Releases. Pásale a tus amigos el link del APK la primera vez; después,
+   GitHub Actions corre los tests, arma el APK firmado, la app de Mac
+   (`letras-X.Y.Z-macos.zip`) y la de Windows (`letras-X.Y.Z-windows.zip`,
+   con el runtime de Visual C++ incluido) y los publica en Releases. Pásale a tus amigos el link del APK la primera vez; después,
    en **Ajustes > Buscar actualizaciones**, la app se actualiza sola.
 
 En cada push, el workflow **CI** corre `flutter analyze`, los tests y
-compila el APK y la app de Mac. Para correr los tests en tu computadora: `flutter test`.
+compila el APK y las apps de Mac y Windows. Para correr los tests en tu computadora: `flutter test`.
 
 > Ojo: el primer APK firmado con tu llave no se puede instalar encima de
 > uno compilado en modo debug (son firmas distintas). Exporta las

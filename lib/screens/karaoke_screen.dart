@@ -44,9 +44,9 @@ class _KaraokeScreenState extends State<KaraokeScreen> {
     super.initState();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     WakelockPlus.enable().catchError((_) {});
-    if (isMac && !MacWindow.fullScreen.value) {
+    if (isDesktop && !DesktopWindow.fullScreen.value) {
       _enteredFullScreen = true;
-      MacWindow.toggleFullScreen();
+      DesktopWindow.toggleFullScreen();
     }
     _hideCloseSoon();
   }
@@ -65,7 +65,7 @@ class _KaraokeScreenState extends State<KaraokeScreen> {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     WakelockPlus.disable().catchError((_) {});
-    if (_enteredFullScreen && MacWindow.fullScreen.value) MacWindow.toggleFullScreen();
+    if (_enteredFullScreen && DesktopWindow.fullScreen.value) DesktopWindow.toggleFullScreen();
     super.dispose();
   }
 

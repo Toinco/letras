@@ -156,8 +156,8 @@ class _HomeShellState extends ConsumerState<HomeShell> with WidgetsBindingObserv
   Widget build(BuildContext context) {
     final wide = isWideLayout(context);
     final landscape = MediaQuery.orientationOf(context) == Orientation.landscape;
-    // En la Mac una ventana ancha no es "el teléfono acostado": la barra queda.
-    final hideChrome = landscape && _index == 0 && !isMac && !wide;
+    // En la compu una ventana ancha no es "el teléfono acostado": la barra queda.
+    final hideChrome = landscape && _index == 0 && !isDesktop && !wide;
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncImmersive(hideChrome));
     final pages = IndexedStack(
       // Con clave global: al entrar o salir de pantalla completa (o pasar de

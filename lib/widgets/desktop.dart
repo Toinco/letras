@@ -11,17 +11,18 @@ const double kWideLayoutBreakpoint = 760;
 bool isWideLayout(BuildContext context) =>
     MediaQuery.sizeOf(context).width >= kWideLayoutBreakpoint;
 
-/// La ventana de la Mac: su barra de título es transparente y el contenido
-/// llega hasta arriba (ver MainFlutterWindow.swift).
-class MacWindow {
-  static const titleBarHeight = 28.0;
+/// La ventana de la compu. En la Mac su barra de título es transparente y
+/// el contenido llega hasta arriba (ver MainFlutterWindow.swift); en Windows
+/// la barra es la común (ver windows/runner/flutter_window.cpp).
+class DesktopWindow {
+  static const macTitleBarHeight = 28.0;
   static const _channel = MethodChannel('io.letras.app/window');
 
   /// Si la ventana está en pantalla completa (sin barra de título).
   static final ValueNotifier<bool> fullScreen = ValueNotifier(false);
 
   static void init() {
-    if (!isMac) return;
+    if (!isDesktop) return;
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'fullScreenChanged') fullScreen.value = call.arguments == true;
     });
@@ -35,7 +36,7 @@ class MacWindow {
     try {
       await _channel.invokeMethod('toggleFullScreen');
     } on MissingPluginException {
-      // Fuera de la Mac.
+      // Fuera de la compu.
     }
   }
 }
@@ -52,10 +53,10 @@ class MacWindowInsets extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!isMac) return child;
     return ValueListenableBuilder<bool>(
-      valueListenable: MacWindow.fullScreen,
+      valueListenable: DesktopWindow.fullScreen,
       builder: (context, full, _) {
         final mq = MediaQuery.of(context);
-        final top = full ? 0.0 : MacWindow.titleBarHeight;
+        final top = full ? 0.0 : DesktopWindow.macTitleBarHeight;
         return MediaQuery(
           data: mq.copyWith(
             padding: mq.padding.copyWith(top: top),

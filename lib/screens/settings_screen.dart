@@ -130,7 +130,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
   /// La notificación con la letra necesita permiso de notificaciones en
   /// Android 13 o más nuevo.
   Future<void> _setLiveNotification(bool value) async {
-    if (value && !isMac) {
+    if (value && !isDesktop) {
       final status = await Permission.notification.request();
       if (!status.isGranted) {
         _snack('Sin permiso de notificaciones no se puede mostrar la letra ahí.');
@@ -412,7 +412,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
             ),
 
             // ------------------------------------------------ Fuera de la app
-            _section('Letra fuera de la app'),
+            // En Windows todavía no hay dónde mostrarla fuera de la ventana.
+            if (!isWindows) _section('Letra fuera de la app'),
             if (isMac)
               _switch(
                 notifier: SettingsService.liveNotification,
@@ -421,7 +422,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                     'Un clic abre Letras.',
                 onChanged: _setLiveNotification,
               )
-            else ...[
+            else if (!isWindows) ...[
               _switch(
                 notifier: SettingsService.liveNotification,
                 title: 'Notificación con la línea actual',
@@ -448,27 +449,33 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
             // ------------------------------------------------ Detección
             _section('Detección y reproducción'),
             Text(
-              isMac
-                  ? 'Letras detecta lo que suena en Spotify y en Música. Si no detecta nada, '
-                      'revisa que Letras tenga permiso en Ajustes del Sistema > Privacidad '
-                      'y seguridad > Automatización.'
-                  : _accessGranted
-                      ? 'Acceso a notificaciones concedido: la app detecta lo que escuchas.'
-                      : 'Acceso a notificaciones no concedido: actívalo para detectar la música.',
+              isWindows
+                  ? 'Letras detecta lo que suena en Spotify, en el navegador y en cualquier app '
+                      'que muestre sus controles en Windows (el cuadro que aparece al subir el '
+                      'volumen). No hace falta ningún permiso.'
+                  : isMac
+                      ? 'Letras detecta lo que suena en Spotify y en Música. Si no detecta nada, '
+                          'revisa que Letras tenga permiso en Ajustes del Sistema > Privacidad '
+                          'y seguridad > Automatización.'
+                      : _accessGranted
+                          ? 'Acceso a notificaciones concedido: la app detecta lo que escuchas.'
+                          : 'Acceso a notificaciones no concedido: actívalo para detectar la '
+                              'música.',
               style: const TextStyle(color: AppTheme.textSecondary),
             ),
             const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: () async {
-                await _nowPlayingService.openNotificationAccessSettings();
-                _load();
-              },
-              child: Text(isMac
-                  ? 'Abrir Automatización'
-                  : _accessGranted
-                      ? 'Abrir ajustes'
-                      : 'Dar acceso'),
-            ),
+            if (!isWindows)
+              OutlinedButton(
+                onPressed: () async {
+                  await _nowPlayingService.openNotificationAccessSettings();
+                  _load();
+                },
+                child: Text(isMac
+                    ? 'Abrir Automatización'
+                    : _accessGranted
+                        ? 'Abrir ajustes'
+                        : 'Dar acceso'),
+              ),
             _switch(
               notifier: SettingsService.prefetchNext,
               title: 'Buscar por adelantado la próxima canción',

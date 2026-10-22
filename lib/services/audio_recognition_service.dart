@@ -37,14 +37,15 @@ class AudioRecognitionService {
   final AudioRecorder _recorder = AudioRecorder();
 
   Future<bool> hasMicrophonePermission() async {
-    // permission_handler no existe en la Mac: ahí pregunta `record`.
-    if (isMac) return _recorder.hasPermission(request: false);
+    // En la compu el permiso lo maneja `record` (permission_handler no
+    // existe en la Mac).
+    if (isDesktop) return _recorder.hasPermission(request: false);
     final status = await Permission.microphone.status;
     return status.isGranted;
   }
 
   Future<bool> requestMicrophonePermission() async {
-    if (isMac) return _recorder.hasPermission();
+    if (isDesktop) return _recorder.hasPermission();
     final status = await Permission.microphone.request();
     return status.isGranted;
   }

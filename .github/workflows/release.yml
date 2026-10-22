@@ -1,6 +1,7 @@
-# Publica una versión nueva: al subir un tag "v1.2.0" arma el APK firmado
-# y la app de Mac (un ZIP con Letras.app) y los publica en GitHub Releases. La app instalada lo detecta sola en
-# Ajustes > Buscar actualizaciones.
+# Publica una versión nueva: al subir un tag "v1.2.0" arma el APK firmado,
+# la app de Mac (un ZIP con Letras.app) y la de Windows (un ZIP con la
+# carpeta Letras) y los publica en GitHub Releases. La app instalada lo
+# detecta sola en Ajustes > Buscar actualizaciones.
 #
 #   git tag v1.2.0 && git push origin v1.2.0
 name: Release
@@ -100,3 +101,46 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: build/letras-*-macos.zip
+
+  windows:
+    # Después del APK, para no crear dos releases a la vez.
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.9'
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      # Sin firma de código: la primera vez Windows avisa ("Windows protegió
+      # tu PC") y hay que tocar "Más información" > "Ejecutar de todas formas".
+      - name: Compilar Letras para Windows
+        shell: pwsh
+        env:
+          AUDD_TOKEN: ${{ secrets.AUDD_TOKEN }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          flutter build windows --release `
+            --build-name="$version" `
+            --build-number="${{ github.run_number }}" `
+            --dart-define=UPDATE_REPO="${{ github.repository }}" `
+            --dart-define=AUDD_TOKEN="$env:AUDD_TOKEN"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force build/Letras | Out-Null
+          Copy-Item -Recurse build/windows/x64/runner/Release/* build/Letras
+          # El runtime de Visual C++ junto al .exe: así abre aunque la compu
+          # no lo tenga instalado.
+          foreach ($dll in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+            Copy-Item "$env:WINDIR/System32/$dll" build/Letras
+          }
+          7z a -tzip "build/letras-$version-windows.zip" ./build/Letras
+
+      - name: Publicar en GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/letras-*-windows.zip

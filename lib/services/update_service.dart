@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../utils/platform.dart';
@@ -25,6 +27,10 @@ class AppRelease {
 ///
 /// En la Mac baja `letras-X.Y.Z-macos.zip`, cierra la app, reemplaza
 /// Letras.app por la nueva y la vuelve a abrir.
+///
+/// En Windows baja `letras-X.Y.Z-windows.zip` y copia los archivos nuevos
+/// encima de los de la carpeta de Letras (los que están en uso se renombran
+/// a `.old` y se borran al volver a abrir).
 ///
 /// El repositorio se fija al compilar (`--dart-define=UPDATE_REPO=usuario/repo`):
 /// el workflow de GitHub Actions lo pasa solo. En una compilación local,
@@ -72,7 +78,11 @@ class UpdateService {
     final json = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     final tag = json['tag_name'] as String? ?? '';
     final assets = (json['assets'] as List<dynamic>? ?? []).cast<Map<String, dynamic>>();
-    final suffix = isMac ? '-macos.zip' : '.apk';
+    final suffix = isMac
+        ? '-macos.zip'
+        : isWindows
+            ? '-windows.zip'
+            : '.apk';
     final apk = assets.where((a) => (a['name'] as String? ?? '').endsWith(suffix)).firstOrNull;
     if (apk == null) return null;
     if (compareVersions(tag, await currentVersion()) <= 0) return null;
@@ -87,6 +97,7 @@ class UpdateService {
   /// Baja el APK (informando el progreso de 0 a 1) y abre el instalador.
   Future<void> downloadAndInstall(AppRelease release, {void Function(double)? onProgress}) async {
     if (isMac) return _updateMac(release, onProgress: onProgress);
+    if (isWindows) return _updateWindows(release, onProgress: onProgress);
     final canInstall = await _channel.invokeMethod<bool>('canInstallPackages') ?? false;
     if (!canInstall) {
       await _channel.invokeMethod('openInstallPermissionSettings');
@@ -161,6 +172,88 @@ rm -rf "\$2" && /usr/bin/ditto "\$3" "\$2"
     await Process.start('/bin/sh', [script.path, '$pid', bundle.path, newApp.path],
         mode: ProcessStartMode.detached);
     exit(0);
+  }
+
+  /// Lista de los `.old` que dejó la última actualización de Windows.
+  static Future<File> _oldFilesList() async =>
+      File(p.join((await getApplicationSupportDirectory()).path, 'actualizacion_old.txt'));
+
+  /// Baja el ZIP, lo descomprime y copia los archivos nuevos en la carpeta
+  /// de Letras. Windows no deja pisar el .exe ni las DLL en uso, pero sí
+  /// renombrarlas: las actuales pasan a `.old`, se copian las nuevas, se
+  /// abre la versión nueva y esta se cierra.
+  Future<void> _updateWindows(AppRelease release, {void Function(double)? onProgress}) async {
+    final exe = File(Platform.resolvedExecutable);
+    final appDir = exe.parent;
+    final probe = File(p.join(appDir.path, '.letras-update-check'));
+    try {
+      await probe.writeAsString('');
+      await probe.delete();
+    } on FileSystemException {
+      throw Exception('No hay permiso para escribir en ${appDir.path}. '
+          'Mueve la carpeta de Letras a tu carpeta de usuario y vuelve a intentar.');
+    }
+
+    final dir = Directory(p.join((await getTemporaryDirectory()).path, 'letras-update'));
+    if (await dir.exists()) await dir.delete(recursive: true);
+    await dir.create(recursive: true);
+    final zip = File(p.join(dir.path, 'letras.zip'));
+    await _download(release, zip, onProgress);
+    final unzipped = p.join(dir.path, 'nuevo');
+    await extractFileToDisk(zip.path, unzipped);
+    final newDir = Directory(p.join(unzipped, 'Letras'));
+    if (!await File(p.join(newDir.path, 'Letras.exe')).exists()) {
+      throw Exception('La actualización no trae Letras.exe.');
+    }
+
+    final moved = <String>[];
+    try {
+      await for (final entity in newDir.list(recursive: true)) {
+        if (entity is! File) continue;
+        final target = File(p.join(appDir.path, p.relative(entity.path, from: newDir.path)));
+        await target.parent.create(recursive: true);
+        if (await target.exists()) {
+          final old = File('${target.path}.old');
+          if (await old.exists()) await old.delete();
+          await target.rename(old.path);
+          moved.add(old.path);
+        }
+        await entity.copy(target.path);
+      }
+    } catch (_) {
+      // Vuelve todo como estaba.
+      for (final old in moved.reversed) {
+        final original = old.substring(0, old.length - '.old'.length);
+        try {
+          File(original).deleteSync();
+        } catch (_) {}
+        try {
+          File(old).renameSync(original);
+        } catch (_) {}
+      }
+      rethrow;
+    }
+    await (await _oldFilesList()).writeAsString(moved.join('\n'));
+
+    // "--actualizado": la nueva espera a que esta se cierre (ver main.cpp).
+    await Process.start(exe.path, ['--actualizado'], mode: ProcessStartMode.detached);
+    exit(0);
+  }
+
+  /// Al abrir la app en Windows: borra los `.old` de la última actualización.
+  static Future<void> cleanUpAfterUpdate() async {
+    if (!isWindows) return;
+    try {
+      final list = await _oldFilesList();
+      if (!await list.exists()) return;
+      for (final path in await list.readAsLines()) {
+        if (!path.endsWith('.old')) continue;
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+      await list.delete();
+    } catch (_) {}
   }
 }
 
