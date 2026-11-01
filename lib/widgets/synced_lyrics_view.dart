@@ -174,6 +174,19 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
 
   bool _autoFollow = true;
 
+  // --- Desplazamiento "en ola", como en Apple Music ---
+  // Al pasar de línea la lista salta a su lugar nuevo, y cada línea se
+  // dibuja corrida hacia donde estaba y llega a su lugar con una pequeña
+  // demora según qué tan abajo está: la de arriba se mueve primero y las
+  // siguientes la siguen, en vez de subir todo el bloque de golpe.
+  final List<({double delta, int anchor, int startMs})> _cascades = [];
+  final ValueNotifier<int> _cascadeTick = ValueNotifier(0);
+  final Stopwatch _clock = Stopwatch()..start();
+  static const _cascadeMs = 620;
+  static const _cascadeStepMs = 42;
+  static const _cascadeMaxSteps = 7;
+  static const Curve _cascadeCurve = Cubic(0.22, 0.9, 0.28, 1.03);
+
   // Buscador dentro de la letra.
   bool _searching = false;
   final TextEditingController _searchController = TextEditingController();
@@ -250,6 +263,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
       _gapIndex = -2;
     }
     if (oldWidget.position != widget.position || oldWidget.lines != widget.lines) {
+      _cascades.clear();
       _sub?.cancel();
       _currentIndex = -1;
       _autoFollow = true;
@@ -377,6 +391,12 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
   }
 
   void _onTick(Duration _) {
+    if (_cascades.isNotEmpty) {
+      final now = _clock.elapsedMilliseconds;
+      const life = _cascadeMs + _cascadeStepMs * _cascadeMaxSteps;
+      _cascades.removeWhere((c) => now - c.startMs > life);
+      _cascadeTick.value++;
+    }
     if (widget.lines.isEmpty) return;
     final now = _effectiveNow;
     _now.value = now;
@@ -412,11 +432,53 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
       }
       return;
     }
-    Scrollable.ensureVisible(
-      ctx,
-      alignment: _anchor,
-      duration: animate ? const Duration(milliseconds: 550) : Duration.zero,
-      curve: Curves.easeOutCubic,
+    if (!animate || !_autoFollow) {
+      _cascades.clear();
+      Scrollable.ensureVisible(ctx, alignment: _anchor, duration: Duration.zero);
+      return;
+    }
+    // Salto al lugar nuevo y cada línea "viaja" desde donde estaba.
+    final before = _scrollController.offset;
+    Scrollable.ensureVisible(ctx, alignment: _anchor, duration: Duration.zero);
+    final delta = _scrollController.offset - before;
+    if (delta.abs() < 0.5) return;
+    // Un salto largo (tocar una línea lejana): directo, sin ola.
+    final viewport = _scrollController.position.viewportDimension;
+    if (delta.abs() > viewport * 1.2) {
+      _cascades.clear();
+      return;
+    }
+    _cascades.add((delta: delta, anchor: _currentIndex, startMs: _clock.elapsedMilliseconds));
+    _cascadeTick.value++;
+  }
+
+  /// Cuánto se dibuja corrida la línea [index] ahora (por las olas en curso).
+  double _cascadeOffset(int index) {
+    if (_cascades.isEmpty) return 0;
+    final now = _clock.elapsedMilliseconds;
+    var dy = 0.0;
+    for (final c in _cascades) {
+      final steps = (index - c.anchor + 1).clamp(0, _cascadeMaxSteps);
+      final t = (now - c.startMs - steps * _cascadeStepMs) / _cascadeMs;
+      if (t >= 1) continue;
+      dy += c.delta * (1 - _cascadeCurve.transform(t.clamp(0.0, 1.0)));
+    }
+    return dy;
+  }
+
+  /// [child] (la línea [index]) corrida según la ola en curso. La clave va
+  /// por fuera, así "llevar la línea a su lugar" mide su lugar real.
+  Widget _withCascade(int index, Key key, Widget child) {
+    return KeyedSubtree(
+      key: key,
+      child: ValueListenableBuilder<int>(
+        valueListenable: _cascadeTick,
+        builder: (context, _, child) {
+          final dy = _cascadeOffset(index);
+          return dy == 0 ? child! : Transform.translate(offset: Offset(0, dy), child: child);
+        },
+        child: child,
+      ),
     );
   }
 
@@ -515,6 +577,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     _introProgress.dispose();
     _gapProgress.dispose();
     _now.dispose();
+    _cascadeTick.dispose();
     super.dispose();
   }
 
@@ -612,6 +675,7 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
               if (notification is ScrollStartNotification &&
                   notification.dragDetails != null &&
                   _autoFollow) {
+                _cascades.clear();
                 setState(() => _autoFollow = false);
               }
               return false;
@@ -639,9 +703,10 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           if (_hasIntro)
-                            KeyedSubtree(
-                              key: _introKey,
-                              child: _InterludeDots(
+                            _withCascade(
+                              -1,
+                              _introKey,
+                              _InterludeDots(
                                 active: _currentIndex < 0,
                                 progress: _introProgress,
                                 size: fontSize,
@@ -700,9 +765,10 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
     final accent = Theme.of(context).colorScheme.primary;
 
     if (_isInterlude(line.text)) {
-      return KeyedSubtree(
-        key: _itemKeys[index],
-        child: _InterludeDots(
+      return _withCascade(
+        index,
+        _itemKeys[index],
+        _InterludeDots(
           active: isCurrent,
           progress: _lineProgress,
           size: fontSize,
@@ -783,20 +849,23 @@ class _SyncedLyricsViewState extends State<SyncedLyricsView> with SingleTickerPr
         ),
       ),
     );
-    return Column(
-      key: _itemKeys[index],
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        lineWidget,
-        AnimatedSize(
-          duration: const Duration(milliseconds: 350),
-          curve: Curves.easeOutCubic,
-          alignment: Alignment.topLeft,
-          child: pausedAfter
-              ? _InterludeDots(active: true, progress: _gapProgress, size: fontSize)
-              : const SizedBox(width: double.infinity),
-        ),
-      ],
+    return _withCascade(
+      index,
+      _itemKeys[index],
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          lineWidget,
+          AnimatedSize(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutCubic,
+            alignment: Alignment.topLeft,
+            child: pausedAfter
+                ? _InterludeDots(active: true, progress: _gapProgress, size: fontSize)
+                : const SizedBox(width: double.infinity),
+          ),
+        ],
+      ),
     );
   }
 

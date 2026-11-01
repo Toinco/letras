@@ -146,6 +146,63 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     case "seekTo":
       let ms = (args?["positionMs"] as? NSNumber)?.doubleValue ?? 0
       command("set player position to \(String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), ms / 1000))", result: result)
+    case "isAppInstalled":
+      let id = Self.bundleId(for: args?["app"] as? String)
+      result(NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) != nil)
+    case "launchApp":
+      let id = Self.bundleId(for: args?["app"] as? String)
+      guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) else {
+        result(false)
+        return
+      }
+      if isRunning(id) {
+        result(true)
+        return
+      }
+      let config = NSWorkspace.OpenConfiguration()
+      // Que se abra de fondo: la ventana de Letras no pierde el foco.
+      config.activates = false
+      config.hides = true
+      NSWorkspace.shared.openApplication(at: url, configuration: config) { app, _ in
+        DispatchQueue.main.async { result(app != nil) }
+      }
+    case "openUrl":
+      guard let raw = args?["url"] as? String, let url = URL(string: raw) else {
+        result(false)
+        return
+      }
+      result(NSWorkspace.shared.open(url))
+    case "spotifyPlayUri":
+      let uri = (args?["uri"] as? String) ?? ""
+      guard uri.hasPrefix("spotify:") else {
+        result(false)
+        return
+      }
+      runCommand(
+        "with timeout of 15 seconds\ntell application id \"com.spotify.client\" to play track \(Self.quoted(uri))\nend timeout",
+        result: result)
+    case "musicSearchLibrary":
+      let query = (args?["query"] as? String) ?? ""
+      queue.async {
+        let found = self.searchMusicLibrary(query)
+        DispatchQueue.main.async { result(found) }
+      }
+    case "musicLibraryStats":
+      let launch = args?["launch"] as? Bool ?? false
+      queue.async {
+        if launch, !self.isRunning("com.apple.Music") { _ = self.launchMusicQuietly() }
+        let stats = self.musicLibraryStats()
+        DispatchQueue.main.async { result(stats) }
+      }
+    case "musicPlayPersistentId":
+      let id = (args?["id"] as? String) ?? ""
+      guard id.range(of: "^[0-9A-Fa-f]+$", options: .regularExpression) != nil else {
+        result(false)
+        return
+      }
+      runCommand(
+        "with timeout of 10 seconds\ntell application id \"com.apple.Music\" to play (first track of playlist 1 whose persistent ID is \"\(id)\")\nend timeout",
+        result: result)
     case "setPreferredPackage":
       let pkg = args?["packageName"] as? String
       queue.async {
@@ -177,6 +234,126 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  private static func bundleId(for app: String?) -> String {
+    app == "apple" ? "com.apple.Music" : "com.spotify.client"
+  }
+
+  /// [text] como cadena de AppleScript, con comillas y barras escapadas.
+  private static func quoted(_ text: String) -> String {
+    let escaped = text
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "\"", with: "\\\"")
+    return "\"\(escaped)\""
+  }
+
+  /// Corre [source] (una orden para Spotify o Música) y avisa si salió bien.
+  private func runCommand(_ source: String, result: @escaping FlutterResult) {
+    queue.async {
+      var error: NSDictionary?
+      NSAppleScript(source: source)?.executeAndReturnError(&error)
+      self.pollNow(force: true)
+      DispatchQueue.main.async { result(error == nil) }
+    }
+  }
+
+  /// Canciones de la biblioteca de Música que coinciden con [query]:
+  /// [id, título, artista, duración en segundos]. Si Música está cerrada,
+  /// la abre de fondo.
+  private func searchMusicLibrary(_ query: String) -> [[Any]] {
+    let q = query.trimmingCharacters(in: .whitespaces)
+    guard !q.isEmpty, isRunning("com.apple.Music") || launchMusicQuietly() else { return [] }
+    let source = """
+      with timeout of 15 seconds
+        tell application id "com.apple.Music"
+          set out to {}
+          set found to (search playlist 1 for \(Self.quoted(q)) only songs)
+          set n to 0
+          repeat with t in found
+            set n to n + 1
+            if n > 25 then exit repeat
+            set end of out to {persistent ID of t, name of t, artist of t, duration of t}
+          end repeat
+          return out
+        end tell
+      end timeout
+      """
+    var error: NSDictionary?
+    guard let list = NSAppleScript(source: source)?.executeAndReturnError(&error), error == nil
+    else { return [] }
+    var out: [[Any]] = []
+    if list.numberOfItems == 0 { return out }
+    for i in 1...list.numberOfItems {
+      guard let item = list.atIndex(i), item.numberOfItems >= 4 else { continue }
+      out.append([
+        item.atIndex(1)?.stringValue ?? "",
+        item.atIndex(2)?.stringValue ?? "",
+        item.atIndex(3)?.stringValue ?? "",
+        item.atIndex(4)?.doubleValue ?? 0,
+      ])
+    }
+    return out
+  }
+
+  /// Lo que escuchaste en Música: cada canción de la biblioteca que sonó
+  /// alguna vez, como [título, artista, álbum, veces, última vez (ms),
+  /// duración (s)]. Si Música está cerrada devuelve una lista vacía (salvo
+  /// que se pida abrirla de fondo con "launch").
+  private func musicLibraryStats() -> [[Any]] {
+    guard isRunning("com.apple.Music") else { return [] }
+    let source = """
+      with timeout of 60 seconds
+        tell application id "com.apple.Music"
+          set lib to library playlist 1
+          return {name of every track of lib, artist of every track of lib, album of every track of lib, played count of every track of lib, played date of every track of lib, duration of every track of lib}
+        end tell
+      end timeout
+      """
+    var error: NSDictionary?
+    guard let lists = NSAppleScript(source: source)?.executeAndReturnError(&error), error == nil,
+          lists.numberOfItems == 6,
+          let names = lists.atIndex(1), let artists = lists.atIndex(2),
+          let albums = lists.atIndex(3), let counts = lists.atIndex(4),
+          let dates = lists.atIndex(5), let durations = lists.atIndex(6)
+    else { return [] }
+    let n = names.numberOfItems
+    if n == 0 { return [] }
+    var out: [[Any]] = []
+    for i in 1...n {
+      let count = Int(counts.atIndex(i)?.int32Value ?? 0)
+      if count <= 0 { continue }
+      var playedMs = 0.0
+      if let d = dates.atIndex(i), d.descriptorType == typeLongDateTime, let date = d.dateValue {
+        playedMs = date.timeIntervalSince1970 * 1000
+      }
+      out.append([
+        names.atIndex(i)?.stringValue ?? "",
+        artists.atIndex(i)?.stringValue ?? "",
+        albums.atIndex(i)?.stringValue ?? "",
+        count,
+        playedMs,
+        durations.atIndex(i)?.doubleValue ?? 0,
+      ])
+    }
+    return out
+  }
+
+  /// Abre Música de fondo y espera a que conteste (hasta unos segundos).
+  private func launchMusicQuietly() -> Bool {
+    guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Music")
+    else { return false }
+    let config = NSWorkspace.OpenConfiguration()
+    config.activates = false
+    NSWorkspace.shared.openApplication(at: url, configuration: config, completionHandler: nil)
+    for _ in 0..<20 {
+      Thread.sleep(forTimeInterval: 0.25)
+      if isRunning("com.apple.Music") {
+        Thread.sleep(forTimeInterval: 1.0)
+        return true
+      }
+    }
+    return false
   }
 
   /// Le manda [verb] a la app que se está siguiendo.
@@ -241,8 +418,14 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
   private func read(_ player: Player) -> State? {
     guard isRunning(player.bundleId) else { return nil }
     let isSpotify = player.bundleId == "com.spotify.client"
+    let before = Date()
     guard let list = run(isSpotify ? Self.spotifyScript : Self.musicScript),
           list.numberOfItems >= 6 else { return nil }
+    // La posición se leyó en algún momento mientras corría el pedido (que
+    // tarda decenas de milisegundos): la mitad del viaje es la mejor
+    // estimación. Antes se tomaba la hora de la respuesta y la letra iba
+    // un poco atrasada.
+    let readAt = before.addingTimeInterval(Date().timeIntervalSince(before) / 2)
     func text(_ i: Int) -> String { list.atIndex(i)?.stringValue ?? "" }
     func number(_ i: Int) -> Double { list.atIndex(i)?.doubleValue ?? 0 }
     let title = text(1).trimmingCharacters(in: .whitespaces)
@@ -261,7 +444,7 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
       nextTitle: isSpotify ? nil : list.atIndex(7)?.stringValue,
       nextArtist: isSpotify ? nil : list.atIndex(8)?.stringValue,
       nextDurationMs: isSpotify ? 0 : Int(number(9)),
-      readAt: Date())
+      readAt: readAt)
   }
 
   /// ¿Faltan menos de 2 segundos (o ya se pasó) para que termine?

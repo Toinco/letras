@@ -5,6 +5,7 @@ import '../models/song.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/song_actions_sheet.dart';
+import '../widgets/song_play.dart';
 import '../widgets/song_card.dart';
 import 'lyrics_screen.dart';
 import 'settings_screen.dart';
@@ -172,6 +173,7 @@ class _FavoritesScreenState extends ConsumerState<FavoritesScreen> {
     return showSongActionsSheet(
       context,
       song: song,
+      leadingActions: playSheetActions(context, song),
       onViewLyrics: () => _viewLyrics(song),
       onDownload: () => _downloadSong(song, silent: false),
     );

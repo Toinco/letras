@@ -44,6 +44,16 @@ class AppHttp {
   }) =>
       _send(() => client.post(uri, headers: headers, body: body), uri, timeout, retries, tag);
 
+  static Future<http.Response> put(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+    Duration timeout = const Duration(seconds: 10),
+    int retries = 1,
+    String? tag,
+  }) =>
+      _send(() => client.put(uri, headers: headers, body: body), uri, timeout, retries, tag);
+
   static Future<http.Response> _send(
     Future<http.Response> Function() request,
     Uri uri,

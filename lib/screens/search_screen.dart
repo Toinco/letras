@@ -4,6 +4,10 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../services/discovery_service.dart';
+import '../widgets/apple_ui.dart';
+import '../widgets/cached_artwork.dart';
+import 'song_list_screen.dart';
 import '../models/album_result.dart';
 import '../models/artist_result.dart';
 import '../models/lyrics_result.dart';
@@ -13,10 +17,9 @@ import '../services/lrclib_service.dart';
 import '../services/lyrics_storage_service.dart';
 import '../services/settings_service.dart';
 import '../theme/app_theme.dart';
-import '../widgets/album_card.dart';
-import '../widgets/artist_card.dart';
 import '../widgets/song_actions_sheet.dart';
 import '../widgets/song_card.dart';
+import '../widgets/song_play.dart';
 import 'album_screen.dart';
 import 'artist_screen.dart';
 import 'lyrics_screen.dart';
@@ -63,8 +66,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   String _lastQuery = '';
   List<AlbumResult> _albumResults = [];
   List<ArtistResult> _artistResults = [];
+  // Canciones del catálogo (se reproducen al tocarlas).
+  List<Song> _catalogSongs = [];
+
+  // Pestañas: Todo, Canciones, Álbumes, Artistas, Letras.
+  static const _lyricsTab = 4;
 
   bool _loading = false;
+  // Las letras de internet llegan después que el resto.
+  bool _lyricsLoading = false;
   bool _searched = false;
 
   // --- Selección múltiple (solo para los resultados online de Canciones,
@@ -81,7 +91,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     // La barra de selección múltiple solo tiene sentido en la pestaña
     // Canciones: hay que refrescar el Scaffold cuando se cambia de
     // pestaña (con un tap o deslizando) para que aparezca/desaparezca.
@@ -135,37 +145,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
     }
   }
 
-  Widget _buildHistory() {
-    if (_history.isEmpty) {
-      return const EmptyState(
-        icon: Icons.manage_search_rounded,
-        title: 'Busca cualquier canción',
-        message: 'Por título, álbum o artista. Pegar un pedazo de la letra también '
-            'busca entre tus letras ya descargadas.',
-      );
-    }
-    return ListView(
-      children: [
-        Row(
-          children: [
-            Expanded(child: _sectionHeader('RECIENTES')),
-            TextButton(
-              onPressed: () => _historyService.clear(),
-              child: const Text('Borrar'),
-            ),
-          ],
-        ),
-        for (final song in _history)
-          SongCard(
-            song: song,
-            trailing: const Icon(Icons.history_rounded, size: 18, color: AppTheme.textSecondary),
-            onTap: () => _openFromHistory(song),
-          ),
-        const SizedBox(height: 40),
-      ],
-    );
-  }
-
   void _onTabChanged() {
     if (mounted) setState(() {});
   }
@@ -197,39 +176,46 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
       _selectedKeys.clear();
     });
 
-    // Las 4 búsquedas (letras ya descargadas, letras online, álbumes,
-    // artistas) salen todas en paralelo: antes álbumes/artistas ni
-    // existían, y local/online ya iban una después de la otra. Ahora todo
-    // tarda lo que tarda la más lenta de las 4, no la suma.
+    // Todo sale en paralelo. El catálogo (canciones, álbumes, artistas) y
+    // tus letras descargadas se muestran apenas llegan; las letras de
+    // internet (LRCLIB, que a veces anda lento) se suman después, sin
+    // hacer esperar al resto.
+    _lyricsLoading = true;
+    final onlineFuture =
+        _lrclibService.searchGeneral(query).catchError((_) => <LyricsResult>[]);
     final results = await Future.wait<dynamic>([
       _storage.searchInLyrics(query),
-      _lrclibService.searchGeneral(query).catchError((_) => <LyricsResult>[]),
       _catalogService.searchAlbums(query),
       _catalogService.searchArtists(query),
+      _catalogService.searchSongs(query, limit: 25),
     ]);
 
     final hits = results[0] as List<LyricsSearchHit>;
     final local = hits.map((h) => h.result).toList();
-    var online = results[1] as List<LyricsResult>;
-    final albums = results[2] as List<AlbumResult>;
-    final artists = results[3] as List<ArtistResult>;
-
-    // No repetir en "Resultados" lo que ya aparece en "Tus descargas".
-    online = online.where((r) => !local.any((l) => _sameSong(l, r))).toList();
-    // LRCLIB devuelve la misma canción subida varias veces: mostramos una
-    // sola (la mejor sincronizada) con "N versiones".
-    final groups = LrclibService.groupVersions(online);
-
     if (!mounted || token != _searchToken) return;
     setState(() {
       _lastQuery = query;
       _localResults = local;
       _localHits = {for (final h in hits) _keyFor(h.result): h};
+      _onlineResults = [];
+      _versions = {};
+      _albumResults = results[1] as List<AlbumResult>;
+      _artistResults = results[2] as List<ArtistResult>;
+      _catalogSongs = results[3] as List<Song>;
+      _loading = false;
+    });
+
+    var online = await onlineFuture;
+    // No repetir en "Resultados" lo que ya aparece en "Tus descargas".
+    online = online.where((r) => !local.any((l) => _sameSong(l, r))).toList();
+    // LRCLIB devuelve la misma canción subida varias veces: mostramos una
+    // sola (la mejor sincronizada) con "N versiones".
+    final groups = LrclibService.groupVersions(online);
+    if (!mounted || token != _searchToken) return;
+    setState(() {
       _onlineResults = groups.map((g) => g.best).toList();
       _versions = {for (final g in groups) _keyFor(g.best): g.versions};
-      _albumResults = albums;
-      _artistResults = artists;
-      _loading = false;
+      _lyricsLoading = false;
     });
   }
 
@@ -406,6 +392,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
     showSongActionsSheet(
       context,
       song: result.song,
+      leadingActions: playSheetActions(context, result.song),
       onViewLyrics: () {
         Navigator.of(context).push(
           MaterialPageRoute(
@@ -431,7 +418,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
       );
 
   Widget _buildSongsTab() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading || (_lyricsLoading && _localResults.isEmpty)) {
+      return const Center(child: CircularProgressIndicator());
+    }
     final hasResults = _localResults.isNotEmpty || _onlineResults.isNotEmpty;
     if (!hasResults) {
       return const EmptyState(
@@ -517,38 +506,71 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   }
 
   Widget _buildAlbumsTab() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading && _albumResults.isEmpty) return const Center(child: CircularProgressIndicator());
     if (_albumResults.isEmpty) {
       return const EmptyState(icon: Icons.album_rounded, title: 'No se encontraron álbumes');
     }
-    return ListView.builder(
-      itemCount: _albumResults.length,
-      itemBuilder: (context, index) {
-        final album = _albumResults[index];
-        return AlbumCard(
-          album: album,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => AlbumScreen(album: album)),
-          ),
-        );
-      },
-    );
+    // Cuadrícula de tapas, como en Apple Music.
+    return LayoutBuilder(builder: (context, constraints) {
+      final columns = (constraints.maxWidth / 190).floor().clamp(2, 5);
+      final size = (constraints.maxWidth - 40 - (columns - 1) * 14) / columns;
+      return GridView.builder(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 140),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          crossAxisSpacing: 14,
+          mainAxisSpacing: 16,
+          childAspectRatio: size / (size + 46),
+        ),
+        itemCount: _albumResults.length,
+        itemBuilder: (context, i) {
+          final a = _albumResults[i];
+          return GestureDetector(
+            onTap: () => _openAlbum(a),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CachedArtwork(url: a.artworkUrl, size: size, borderRadius: 10),
+                const SizedBox(height: 6),
+                Text(
+                  a.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                Text(
+                  [a.artist, if (a.releaseYear != null) '${a.releaseYear}'].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    });
   }
 
   Widget _buildArtistsTab() {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading && _artistResults.isEmpty) return const Center(child: CircularProgressIndicator());
     if (_artistResults.isEmpty) {
       return const EmptyState(icon: Icons.person_search_rounded, title: 'No se encontraron artistas');
     }
     return ListView.builder(
+      padding: const EdgeInsets.only(top: 6, bottom: 140),
       itemCount: _artistResults.length,
       itemBuilder: (context, index) {
         final artist = _artistResults[index];
-        return ArtistCard(
-          artist: artist,
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => ArtistScreen(artist: artist)),
-          ),
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+          leading: _ArtistPhoto(name: artist.name, size: 52),
+          title: Text(artist.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: artist.genre == null
+              ? null
+              : Text(artist.genre!, style: const TextStyle(color: AppTheme.textSecondary)),
+          trailing: const Icon(Icons.chevron_right_rounded, color: AppTheme.textSecondary),
+          onTap: () => _openArtist(artist),
         );
       },
     );
@@ -588,68 +610,102 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
   Widget build(BuildContext context) {
     return ReadableFrame(
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Buscar'),
-          actions: [
-            // En pantallas anchas Ajustes está en el menú lateral.
-            if (!isWideLayout(context))
-              IconButton(
-                tooltip: 'Ajustes',
-                icon: const Icon(Icons.settings_rounded),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                ),
-              ),
-          ],
-          bottom: TabBar(
-            controller: _tabController,
-            tabs: const [
-              Tab(text: 'Canciones'),
-              Tab(text: 'Álbumes'),
-              Tab(text: 'Artistas'),
-            ],
-          ),
-        ),
         bottomNavigationBar:
-            (_selectionMode && _tabController.index == 0) ? _buildSelectionBar() : null,
-        body: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            (_selectionMode && _tabController.index == _lyricsTab) ? _buildSelectionBar() : null,
+        body: SafeArea(
+          bottom: false,
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TextField(
-                controller: _queryController,
-                decoration: const InputDecoration(
-                  hintText: 'Título, artista, álbum o parte de la letra',
-                  prefixIcon: Icon(Icons.search_rounded),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 8, 6),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Buscar',
+                        style: TextStyle(
+                            fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -0.6),
+                      ),
+                    ),
+                    // En pantallas anchas Ajustes está en el menú lateral.
+                    if (!isWideLayout(context))
+                      IconButton(
+                        tooltip: 'Ajustes',
+                        icon: const Icon(Icons.settings_rounded, color: AppTheme.textSecondary),
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                        ),
+                      ),
+                  ],
                 ),
-                textInputAction: TextInputAction.search,
-                onChanged: _onQueryChanged,
-                onSubmitted: (_) => _search(),
               ),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: _loading ? null : _search,
-                  child: _loading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                        )
-                      : const Text('Buscar'),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _queryController,
+                  builder: (context, value, _) => TextField(
+                    controller: _queryController,
+                    decoration: InputDecoration(
+                      hintText: 'Artistas, canciones, álbumes o letra',
+                      prefixIcon: _loading
+                          ? const Padding(
+                              padding: EdgeInsets.all(14),
+                              child: SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : const Icon(Icons.search_rounded),
+                      suffixIcon: value.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Borrar',
+                              icon: const Icon(Icons.cancel_rounded, color: AppTheme.textSecondary),
+                              onPressed: () {
+                                _queryController.clear();
+                                setState(() => _searched = false);
+                              },
+                            ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    textInputAction: TextInputAction.search,
+                    onChanged: _onQueryChanged,
+                    onSubmitted: (_) => _search(),
+                  ),
                 ),
               ),
-              const SizedBox(height: 10),
+              if (_searched)
+                TabBar(
+                  controller: _tabController,
+                  isScrollable: true,
+                  tabAlignment: TabAlignment.start,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  dividerColor: Colors.transparent,
+                  tabs: const [
+                    Tab(text: 'Todo'),
+                    Tab(text: 'Canciones'),
+                    Tab(text: 'Álbumes'),
+                    Tab(text: 'Artistas'),
+                    Tab(text: 'Letras'),
+                  ],
+                ),
+              const SizedBox(height: 6),
               Expanded(
                 child: !_searched
-                    ? _buildHistory()
+                    ? _buildBrowse()
                     : TabBarView(
                         controller: _tabController,
                         children: [
-                          _buildSongsTab(),
+                          _buildAllTab(),
+                          _buildCatalogSongsTab(),
                           _buildAlbumsTab(),
                           _buildArtistsTab(),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: _buildSongsTab(),
+                          ),
                         ],
                       ),
               ),
@@ -659,4 +715,329 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
       ),
     );
   }
+
+  // ------------------------------------------------ sin buscar: explorar
+
+  // Nombre, color y qué lista buscar para cada categoría.
+  static const _genres = [
+    ('Pop', Color(0xFFFC3C44), 'pop hits'),
+    ('Reggaetón', Color(0xFFFF9500), 'reggaeton hits'),
+    ('Trap', Color(0xFF5E5CE6), 'trap latino'),
+    ('Rock en español', Color(0xFF30B0C7), 'rock en español'),
+    ('Cumbia', Color(0xFF34C759), 'cumbia'),
+    ('Indie', Color(0xFFAF52DE), 'indie hits'),
+    ('Electrónica', Color(0xFF0A84FF), 'electronic hits'),
+    ('Hip hop', Color(0xFFFF375F), 'hip hop hits'),
+    ('Rock', Color(0xFF8E8E93), 'rock classics'),
+    ('R&B', Color(0xFFBF5AF2), 'r&b hits'),
+  ];
+
+  /// Abre la lista de una categoría (canciones que se reproducen al tocarlas).
+  Future<void> _openGenre(String name, String query) async {
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+    final songs = await ref.read(discoveryProvider).playlistSongs(query);
+    navigator.pop();
+    if (songs.isEmpty) {
+      messenger.showSnackBar(const SnackBar(content: Text('No se pudo cargar esta categoría.')));
+      return;
+    }
+    navigator.push(MaterialPageRoute(
+      builder: (_) => SongListScreen(title: name, subtitle: 'Explorar', songs: songs),
+    ));
+  }
+
+  /// Antes de buscar: lo último que abriste y categorías para explorar,
+  /// como Spotify y Apple Music.
+  Widget _buildBrowse() {
+    final wide = MediaQuery.sizeOf(context).width > 700;
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 140),
+      children: [
+        if (_history.isNotEmpty) ...[
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Recientes',
+                  style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700),
+                ),
+              ),
+              TextButton(onPressed: () => _historyService.clear(), child: const Text('Borrar')),
+            ],
+          ),
+          for (final song in _history.take(6))
+            SongCard(
+              song: song,
+              trailing: IconButton(
+                tooltip: 'Reproducir',
+                icon: const Icon(Icons.play_circle_fill_rounded, size: 30),
+                onPressed: () => playSong(context, song),
+              ),
+              onTap: () => _openFromHistory(song),
+              onLongPress: () => showPlayableSongSheet(context, song),
+            ),
+          const SizedBox(height: 18),
+        ],
+        const Text(
+          'Explorar categorías',
+          style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 12),
+        GridView.count(
+          crossAxisCount: wide ? 4 : 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: 1.6,
+          children: [
+            for (final (name, color, query) in _genres)
+              Material(
+                color: color,
+                borderRadius: BorderRadius.circular(12),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => _openGenre(name, query),
+                  child: Stack(
+                    children: [
+                      Positioned(
+                        right: -14,
+                        bottom: -14,
+                        child: Transform.rotate(
+                          angle: 0.4,
+                          child: Icon(Icons.music_note_rounded,
+                              size: 80, color: Colors.white.withValues(alpha: 0.22)),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          name,
+                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ------------------------------------------------------- resultados
+
+  void _openArtist(ArtistResult artist) => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => ArtistScreen(artist: artist)),
+      );
+
+  void _openAlbum(AlbumResult album) => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => AlbumScreen(album: album)),
+      );
+
+  Widget _catalogSongRow(int i) {
+    final song = _catalogSongs[i];
+    return SongRow(
+      song: song,
+      onTap: () => playSong(context, song, upNext: _catalogSongs.sublist(i + 1)),
+      onMore: () => showPlayableSongSheet(context, song, upNext: _catalogSongs.sublist(i + 1)),
+    );
+  }
+
+  Widget _allHeader(String title, int tab) => InkWell(
+        onTap: () => _tabController.animateTo(tab),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 22, 20, 8),
+          child: Row(
+            children: [
+              Text(title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+              const Icon(Icons.chevron_right_rounded, color: AppTheme.textSecondary),
+            ],
+          ),
+        ),
+      );
+
+  /// "Todo": el mejor resultado y un poco de cada cosa.
+  Widget _buildAllTab() {
+    if (_loading && _catalogSongs.isEmpty && _artistResults.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final nothing = _catalogSongs.isEmpty &&
+        _albumResults.isEmpty &&
+        _artistResults.isEmpty &&
+        _localResults.isEmpty &&
+        _onlineResults.isEmpty;
+    if (nothing) {
+      return const EmptyState(
+        icon: Icons.search_off_rounded,
+        title: 'Sin resultados',
+        message: 'Prueba con menos palabras o solo con el título.',
+      );
+    }
+    final q = _lastQuery.toLowerCase().trim();
+    // El mejor resultado: el artista si se buscó su nombre; si no, la canción.
+    final topArtist = _artistResults.where((a) => a.name.toLowerCase().trim() == q).firstOrNull;
+    final wide = MediaQuery.sizeOf(context).width > 700;
+    return ListView(
+      padding: const EdgeInsets.only(bottom: 140),
+      children: [
+        if (topArtist != null || _catalogSongs.isNotEmpty) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 12, 20, 8),
+            child: Text('Mejor resultado',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700)),
+          ),
+          _TopResult(
+            artist: topArtist,
+            song: topArtist == null ? _catalogSongs.first : null,
+            onTap: () => topArtist != null
+                ? _openArtist(topArtist)
+                : playSong(context, _catalogSongs.first, upNext: _catalogSongs.sublist(1)),
+          ),
+        ],
+        if (_catalogSongs.isNotEmpty) ...[
+          _allHeader('Canciones', 1),
+          for (var i = 0; i < _catalogSongs.length && i < 5; i++) _catalogSongRow(i),
+        ],
+        if (_artistResults.isNotEmpty) ...[
+          _allHeader('Artistas', 3),
+          ArtistCircleRow(
+            artists: [
+              for (final a in _artistResults.take(10)) DiscoveryArtist(name: a.name),
+            ],
+            size: 96,
+          ),
+        ],
+        if (_albumResults.isNotEmpty) ...[
+          _allHeader('Álbumes', 2),
+          AlbumCardRow(albums: _albumResults.take(12).toList(), size: wide ? 170 : 140),
+        ],
+        if (_localResults.isNotEmpty || _onlineResults.isNotEmpty) ...[
+          _allHeader('Letras', _lyricsTab),
+          for (final r in [..._localResults, ..._onlineResults].take(3))
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SongCard(
+                song: r.song,
+                subtitleOverride: '${r.song.artist} · Letra',
+                trailing: Icon(Icons.lyrics_outlined,
+                    size: 18, color: Theme.of(context).colorScheme.primary),
+                onTap: () => _openResult(r, alreadySaved: _localResults.contains(r)),
+              ),
+            ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildCatalogSongsTab() {
+    if (_loading && _catalogSongs.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (_catalogSongs.isEmpty) {
+      return const EmptyState(icon: Icons.music_off_rounded, title: 'No se encontraron canciones');
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 6, bottom: 140),
+      itemCount: _catalogSongs.length,
+      itemBuilder: (context, i) => _catalogSongRow(i),
+    );
+  }
+}
+
+/// La tarjeta grande de "Mejor resultado".
+class _TopResult extends StatelessWidget {
+  final ArtistResult? artist;
+  final Song? song;
+  final VoidCallback onTap;
+
+  const _TopResult({this.artist, this.song, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final isArtist = artist != null;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          onLongPress: song == null ? null : () => showPlayableSongSheet(context, song!),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                if (isArtist)
+                  _ArtistPhoto(name: artist!.name, size: 84)
+                else
+                  SongThumb(song: song!, size: 84, radius: 8),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isArtist ? artist!.name : song!.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isArtist ? 'Artista' : 'Canción · ${song!.artist}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: AppTheme.textSecondary),
+                      ),
+                    ],
+                  ),
+                ),
+                if (!isArtist)
+                  Icon(Icons.play_circle_fill_rounded,
+                      size: 44, color: Theme.of(context).colorScheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Foto de un artista (de Deezer), redonda.
+class _ArtistPhoto extends ConsumerStatefulWidget {
+  final String name;
+  final double size;
+
+  const _ArtistPhoto({required this.name, required this.size});
+
+  @override
+  ConsumerState<_ArtistPhoto> createState() => _ArtistPhotoState();
+}
+
+class _ArtistPhotoState extends ConsumerState<_ArtistPhoto> {
+  String? _url;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.read(discoveryProvider).artist(widget.name).then((a) {
+      if (mounted) setState(() => _url = a?.imageUrl);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) => CachedArtwork(
+        url: _url,
+        size: widget.size,
+        borderRadius: widget.size / 2,
+        fallbackIcon: Icons.person_rounded,
+      );
 }

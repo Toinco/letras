@@ -11,7 +11,7 @@ import 'package:lyrics_app/main.dart';
 import 'package:lyrics_app/widgets/app_nav_bar.dart';
 
 void main() {
-  testWidgets('La app arranca y muestra la pestaña Reproduciendo', (WidgetTester tester) async {
+  testWidgets('La app arranca en Inicio y llega a Reproduciendo', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
     // Canal nativo simulado: sin permiso de notificaciones.
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -22,7 +22,11 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('Reproduciendo'), findsWidgets);
+    // Arranca en Inicio (no suena nada); Reproduciendo está en la barra.
+    expect(find.text('Inicio'), findsWidgets);
+    await tester.tap(find.text('Reproduciendo').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     // Sin permiso de notificaciones, ofrece darlo o usar el micrófono.
     expect(find.text('Dar acceso'), findsOneWidget);
     expect(find.text('O escuchar con el micrófono'), findsOneWidget);
@@ -56,8 +60,8 @@ void main() {
     await pumpAt(tester, const Size(1200, 800));
     expect(find.byType(NavigationRail), findsOneWidget);
     expect(find.byType(AppNavBar), findsNothing);
-    // Ajustes está en el menú lateral.
-    expect(find.byTooltip('Ajustes'), findsOneWidget);
+    // Ajustes está en el menú lateral (y en Inicio).
+    expect(find.byTooltip('Ajustes'), findsWidgets);
     await tester.pumpWidget(const SizedBox());
   });
 }

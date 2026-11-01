@@ -8,5 +8,8 @@ bool get isMac => defaultTargetPlatform == TargetPlatform.macOS;
 /// ¿Corre en Windows? (igual que [isMac], según [defaultTargetPlatform]).
 bool get isWindows => defaultTargetPlatform == TargetPlatform.windows;
 
+/// ¿Corre en Android? (igual que [isMac]).
+bool get isAndroid => defaultTargetPlatform == TargetPlatform.android;
+
 /// Mac o Windows: ventana de compu, sin permisos de Android.
 bool get isDesktop => isMac || isWindows;

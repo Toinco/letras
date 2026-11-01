@@ -252,6 +252,12 @@ object MediaSessionBridge {
         }
     }
 
+    /** La sesión abierta de la app [pkg] (Spotify, Apple Music...), si hay. */
+    fun controllerFor(pkg: String): MediaController? {
+        if (manager != null && isAccessGranted() && !listening) start()
+        return controllers.values.firstOrNull { it.packageName == pkg }
+    }
+
     // --- Controles de transporte sobre el reproductor seguido ---
     fun play() = current()?.transportControls?.play()
     fun pause() = current()?.transportControls?.pause()

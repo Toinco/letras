@@ -130,7 +130,7 @@ class _NowPlayingScreenState extends ConsumerState<NowPlayingScreen>
   /// controlador si la letra está a la vista (para las estadísticas).
   void _updateVisibility() {
     final c = _c;
-    final visible = _appInForeground && HomeShell.currentTab.value == 0 && c.lyrics != null;
+    final visible = _appInForeground && HomeShell.currentTab.value == HomeShell.nowPlayingTab && c.lyrics != null;
     c.lyricsVisible = visible;
     final keepOn = SettingsService.keepScreenOn.value && visible && (c.track?.isPlaying ?? false);
     WakelockPlus.toggle(enable: keepOn).catchError((_) {});

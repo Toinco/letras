@@ -27,6 +27,7 @@ class SettingsService {
   static const _floatingBubbleKey = 'floating_bubble';
   static const _prefetchNextKey = 'prefetch_next';
   static const _extraSourcesKey = 'extra_lyrics_sources';
+  static const _playServiceKey = 'play_service';
 
   /// Preferencias de visualización que tienen que reflejarse al instante en
   /// todas las pantallas abiertas (tamaño de letra, efecto karaoke...).
@@ -59,6 +60,10 @@ class SettingsService {
   /// Buscar en Musixmatch / NetEase / Genius cuando LRCLIB no la tiene.
   static final ValueNotifier<bool> extraSources = ValueNotifier(true);
 
+  /// Con qué servicio suenan las canciones que se tocan en la app:
+  /// 'spotify' o 'apple'.
+  static final ValueNotifier<String> playService = ValueNotifier('spotify');
+
   /// Desfase general por app de música (paquete -> ms), p. ej. para
   /// auriculares Bluetooth con latencia.
   static final ValueNotifier<Map<String, int>> appOffsets = ValueNotifier(const {});
@@ -80,6 +85,7 @@ class SettingsService {
     floatingBubble.value = prefs.getBool(_floatingBubbleKey) ?? false;
     prefetchNext.value = prefs.getBool(_prefetchNextKey) ?? true;
     extraSources.value = prefs.getBool(_extraSourcesKey) ?? true;
+    playService.value = prefs.getString(_playServiceKey) ?? 'spotify';
     try {
       final raw = jsonDecode(prefs.getString(_appOffsetsKey) ?? '{}') as Map<String, dynamic>;
       appOffsets.value = raw.map((k, v) => MapEntry(k, v as int));
@@ -113,6 +119,12 @@ class SettingsService {
   Future<void> setFloatingBubble(bool v) => _setBool(floatingBubble, _floatingBubbleKey, v);
   Future<void> setPrefetchNext(bool v) => _setBool(prefetchNext, _prefetchNextKey, v);
   Future<void> setExtraSources(bool v) => _setBool(extraSources, _extraSourcesKey, v);
+
+  Future<void> setPlayService(String service) async {
+    playService.value = service;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_playServiceKey, service);
+  }
 
   Future<void> setTranslationLang(String lang) async {
     translationLang.value = lang;

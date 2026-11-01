@@ -24,6 +24,7 @@ Future<void> showSongActionsSheet(
   VoidCallback? onViewLyrics,
   Future<void> Function()? onDownload,
   List<SongSheetAction> extraActions = const [],
+  List<SongSheetAction> leadingActions = const [],
 }) {
   return showAdaptiveSheet(
     context: context,
@@ -75,6 +76,16 @@ Future<void> showSongActionsSheet(
               ),
               const SizedBox(height: 8),
               const Divider(height: 24, color: Colors.white12),
+              for (final action in leadingActions)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(action.icon, color: Colors.white),
+                  title: Text(action.label),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    action.onTap();
+                  },
+                ),
               if (onViewLyrics != null)
                 ListTile(
                   contentPadding: EdgeInsets.zero,

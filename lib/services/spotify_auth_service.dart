@@ -20,9 +20,12 @@ import 'app_http.dart';
 /// `MainActivity` (ver `onNewIntent`), y de ahí llega a Dart por un
 /// EventChannel nativo.
 class SpotifyAuthService {
-  // Las playlists (propias y colaborativas) necesitan permisos aparte: si
-  // te conectaste antes de que existieran, hay que reconectar una vez.
-  static const _scope = 'user-library-read playlist-read-private playlist-read-collaborative';
+  // Las playlists (propias y colaborativas) y la reproducción necesitan
+  // permisos aparte: si te conectaste antes de que existieran, hay que
+  // reconectar una vez.
+  static const _scope = 'user-library-read playlist-read-private playlist-read-collaborative '
+      'user-read-playback-state user-modify-playback-state '
+      'user-read-recently-played user-top-read';
   static const _grantedScopeKey = 'spotify_granted_scope';
   static const _authEndpoint = 'https://accounts.spotify.com/authorize';
   static const _tokenEndpoint = 'https://accounts.spotify.com/api/token';
@@ -162,6 +165,19 @@ class SpotifyAuthService {
   Future<bool> canReadPlaylists() async {
     final prefs = await SharedPreferences.getInstance();
     return (prefs.getString(_grantedScopeKey) ?? '').contains('playlist-read-private');
+  }
+
+  /// ¿La sesión actual puede manejar la reproducción (elegir qué suena)?
+  Future<bool> canControlPlayback() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getString(_grantedScopeKey) ?? '').contains('user-modify-playback-state');
+  }
+
+  /// ¿La sesión actual puede leer lo último escuchado y lo más escuchado?
+  Future<bool> canReadListening() async {
+    final prefs = await SharedPreferences.getInstance();
+    final scope = prefs.getString(_grantedScopeKey) ?? '';
+    return scope.contains('user-top-read') && scope.contains('user-read-recently-played');
   }
 
   /// Devuelve un access token válido, renovándolo antes si hace falta.

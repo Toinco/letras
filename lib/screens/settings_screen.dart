@@ -35,6 +35,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
 
   bool _accessGranted = false;
   bool _spotifyConnected = false;
+  bool _spotifyCanPlay = false;
+  bool _connectingSpotify = false;
   bool _autoSaveListened = false;
   bool _canDrawOverlays = false;
   bool _hasWidgets = false;
@@ -73,6 +75,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
     final granted = await _nowPlayingService.isNotificationAccessGranted();
     final spotifyClientId = await _spotifyAuth.getClientId();
     final spotifyConnected = await _spotifyAuth.isConnected();
+    final spotifyCanPlay = spotifyConnected && await _spotifyAuth.canControlPlayback();
     final geniusToken = await _settingsService.getGeniusToken();
     final claudeKey = await _settingsService.getClaudeApiKey();
     final autoSave = await _settingsService.getAutoSaveListened();
@@ -90,6 +93,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
         _accessGranted = granted;
         _spotifyClientIdController.text = spotifyClientId;
         _spotifyConnected = spotifyConnected;
+        _spotifyCanPlay = spotifyCanPlay;
         _geniusTokenController.text = geniusToken;
         _claudeKeyController.text = claudeKey;
         _canDrawOverlays = overlays;
@@ -121,6 +125,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
   Future<void> _saveSpotifyClientId() async {
     await _spotifyAuth.setClientId(_spotifyClientIdController.text);
     _snack('Client ID de Spotify guardado.');
+  }
+
+  /// Conecta (o reconecta, para sumar permisos nuevos) la cuenta de Spotify.
+  Future<void> _connectSpotify() async {
+    if (_connectingSpotify) return;
+    setState(() => _connectingSpotify = true);
+    try {
+      await _spotifyAuth.connect();
+      final canPlay = await _spotifyAuth.canControlPlayback();
+      if (mounted) {
+        setState(() {
+          _spotifyConnected = true;
+          _spotifyCanPlay = canPlay;
+        });
+      }
+      _snack('Spotify conectado.');
+      ref.read(homeFeedProvider).refresh();
+    } catch (e) {
+      _snack('$e'.replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _connectingSpotify = false);
+    }
   }
 
   Future<void> _disconnectSpotify() async {
@@ -532,6 +558,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                 'Genera un "Client Access Token" en genius.com/api-clients.'),
             _tokenField(_geniusTokenController, 'Client Access Token', _saveGeniusToken),
 
+            // ------------------------------------------------ Reproducir
+            _section('Reproducir canciones'),
+            _hint('Cuando tocas una canción en Inicio, en un álbum o en una lista, Letras '
+                'se la pide a esta app (con tu cuenta) y muestra su letra. Manteniendo '
+                'apretada una canción puedes elegir la otra.'),
+            ValueListenableBuilder<String>(
+              valueListenable: SettingsService.playService,
+              builder: (context, service, _) => SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'spotify', label: Text('Spotify')),
+                  ButtonSegment(value: 'apple', label: Text('Apple Music')),
+                ],
+                selected: {service},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) => _settingsService.setPlayService(v.first),
+              ),
+            ),
+            const SizedBox(height: 8),
+            ValueListenableBuilder<String>(
+              valueListenable: SettingsService.playService,
+              builder: (context, service, _) => _hint(service == 'apple'
+                  ? (isMac
+                      ? 'Las canciones de tu biblioteca de Música suenan directo. Las que no '
+                          'están se abren en Música para que las pongas.'
+                      : 'Apple Music busca la canción y la pone.')
+                  : (_spotifyCanPlay
+                      ? 'Suenan directo en Spotify, con el resto del álbum o la lista detrás.'
+                      : 'Conecta (o reconecta) tu cuenta de Spotify aquí abajo para que '
+                          'suenen directo y con la lista completa.')),
+            ),
+
             // ------------------------------------------------ Spotify
             _section('Spotify'),
             _hint('Para tus "Canciones que te gustan" y tus playlists: crea una app gratis '
@@ -559,6 +616,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> with WidgetsBin
                 MaterialPageRoute(builder: (_) => const SpotifyPlaylistsScreen()),
               ),
             ),
+            const SizedBox(height: 8),
+            if (!_spotifyConnected || !_spotifyCanPlay)
+              FilledButton.icon(
+                icon: _connectingSpotify
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.link_rounded),
+                label: Text(_spotifyConnected
+                    ? 'Reconectar Spotify (para reproducir)'
+                    : 'Conectar Spotify'),
+                onPressed: _connectingSpotify ? null : _connectSpotify,
+              ),
             if (_spotifyConnected) ...[
               const SizedBox(height: 8),
               OutlinedButton(onPressed: _disconnectSpotify, child: const Text('Desconectar Spotify')),

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'data/app_database.dart';
+import 'widgets/player_host.dart';
 import 'screens/home_shell.dart';
 import 'services/accent_controller.dart';
 import 'services/error_log.dart';
@@ -60,7 +61,9 @@ class LyricsApp extends StatelessWidget {
           darkTheme: theme,
           themeMode: ThemeMode.dark,
           home: const HomeShell(),
-          builder: (context, child) => MacWindowInsets(child: child!),
+          navigatorKey: appNavigatorKey,
+          navigatorObservers: [PageCounter()],
+          builder: (context, child) => MacWindowInsets(child: PlayerHost(child: child!)),
         );
       },
     );

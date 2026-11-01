@@ -167,6 +167,39 @@ class MainActivity : FlutterActivity() {
                         runOnUiThread { result.success(nonce) }
                     }.start()
                 }
+                // --- Reproducir una canción elegida en Spotify o Apple Music ---
+                "isAppInstalled" -> result.success(
+                    MusicApps.isInstalled(app, MusicApps.pkg(call.argument<String>("app")))
+                )
+                "launchApp" -> result.success(
+                    MusicApps.launch(app, MusicApps.pkg(call.argument<String>("app")))
+                )
+                "openUrl" -> result.success(
+                    MusicApps.open(
+                        app,
+                        call.argument<String>("url") ?: "",
+                        call.argument<String>("app")?.let { MusicApps.pkg(it) },
+                    )
+                )
+                "spotifyPlayUri" -> result.success(
+                    MusicApps.open(app, call.argument<String>("uri") ?: "", MusicApps.SPOTIFY)
+                )
+                "playFromSearch" -> result.success(
+                    MusicApps.playFromSearch(
+                        app,
+                        MusicApps.pkg(call.argument<String>("app")),
+                        call.argument<String>("title") ?: "",
+                        call.argument<String>("artist") ?: "",
+                        call.argument<String>("album"),
+                    )
+                )
+                "bringToFront" -> {
+                    app.startActivity(
+                        Intent(app, MainActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    )
+                    result.success(true)
+                }
                 else -> result.notImplemented()
             }
         }

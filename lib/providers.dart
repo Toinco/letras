@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'controllers/home_feed_controller.dart';
 import 'controllers/now_playing_controller.dart';
 import 'services/artwork_service.dart';
 import 'services/audio_recognition_service.dart';
+import 'services/discovery_service.dart';
 import 'services/favorites_sync_service.dart';
 import 'services/genius_service.dart';
 import 'services/history_service.dart';
@@ -12,6 +14,7 @@ import 'services/lyrics_download_helper.dart';
 import 'services/lyrics_finder.dart';
 import 'services/lyrics_storage_service.dart';
 import 'services/now_playing_service.dart';
+import 'services/playback_service.dart';
 import 'services/playlist_service.dart';
 import 'services/settings_service.dart';
 import 'services/spotify_auth_service.dart';
@@ -42,6 +45,11 @@ final statsProvider = Provider<StatsService>((ref) => StatsService());
 final geniusProvider = Provider<GeniusService>((ref) => GeniusService());
 final playlistProvider = Provider<PlaylistService>((ref) => PlaylistService());
 final favoritesSyncProvider = Provider<FavoritesSyncService>((ref) => FavoritesSyncService());
+final playbackProvider = Provider<PlaybackService>((ref) => PlaybackService(
+      spotify: ref.watch(spotifyProvider),
+      auth: ref.watch(spotifyAuthProvider),
+      catalog: ref.watch(catalogProvider),
+    ));
 final downloadHelperProvider = Provider<LyricsDownloadHelper>((ref) => LyricsDownloadHelper());
 
 /// Todo lo de "Reproduciendo": qué suena, su letra, traducción, desfase,
@@ -57,6 +65,21 @@ final nowPlayingControllerProvider = ChangeNotifierProvider<NowPlayingController
     settings: ref.watch(settingsProvider),
     recognition: ref.watch(audioRecognitionProvider),
     stats: ref.watch(statsProvider),
+  );
+  controller.start();
+  return controller;
+});
+
+final discoveryProvider = Provider<DiscoveryService>((ref) => DiscoveryService());
+
+/// Lo que muestra Inicio (recientes, más escuchadas, recomendaciones...).
+final homeFeedProvider = ChangeNotifierProvider<HomeFeedController>((ref) {
+  final controller = HomeFeedController(
+    history: ref.watch(historyProvider),
+    stats: ref.watch(statsProvider),
+    discovery: ref.watch(discoveryProvider),
+    spotify: ref.watch(spotifyProvider),
+    spotifyAuth: ref.watch(spotifyAuthProvider),
   );
   controller.start();
   return controller;

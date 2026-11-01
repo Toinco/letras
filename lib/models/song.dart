@@ -15,6 +15,13 @@ class Song {
   /// ordenar el tracklist tal cual está en el álbum original.
   final int? trackNumber;
 
+  /// Id del catálogo de Apple Music / iTunes (el mismo número en los dos),
+  /// cuando la canción viene de ahí. Sirve para abrirla en Apple Music.
+  final int? appleId;
+
+  /// URI de Spotify (spotify:track:...), cuando la canción viene de ahí.
+  final String? spotifyUri;
+
   const Song({
     required this.title,
     required this.artist,
@@ -22,6 +29,8 @@ class Song {
     this.durationSeconds,
     this.artworkUrl,
     this.trackNumber,
+    this.appleId,
+    this.spotifyUri,
   });
 
   @override
@@ -42,6 +51,8 @@ class Song {
         durationSeconds: durationSeconds,
         artworkUrl: identity.artworkUrl ?? artworkUrl,
         trackNumber: identity.trackNumber ?? trackNumber,
+        appleId: identity.appleId ?? appleId,
+        spotifyUri: identity.spotifyUri ?? spotifyUri,
       );
 
   Map<String, dynamic> toJson() => {
@@ -51,6 +62,8 @@ class Song {
         'durationSeconds': durationSeconds,
         'artworkUrl': artworkUrl,
         'trackNumber': trackNumber,
+        if (appleId != null) 'appleId': appleId,
+        if (spotifyUri != null) 'spotifyUri': spotifyUri,
       };
 
   factory Song.fromJson(Map<String, dynamic> json) => Song(
@@ -60,5 +73,7 @@ class Song {
         durationSeconds: json['durationSeconds'] as int?,
         artworkUrl: json['artworkUrl'] as String?,
         trackNumber: json['trackNumber'] as int?,
+        appleId: (json['appleId'] as num?)?.toInt(),
+        spotifyUri: json['spotifyUri'] as String?,
       );
 }
