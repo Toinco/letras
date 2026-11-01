@@ -90,21 +90,36 @@ class PlaybackService {
     }
     final uri = found.spotifyUri!;
 
-    if (await auth.canControlPlayback()) {
+    // Si es un disco (las que siguen son del mismo álbum), se pone dentro
+    // del álbum en Spotify: sigue el resto del disco sin buscar nada más.
+    final album = song.album?.toLowerCase().trim();
+    final sameAlbum = album != null &&
+        album.isNotEmpty &&
+        upNext.isNotEmpty &&
+        upNext.every((s) => s.album?.toLowerCase().trim() == album);
+    final context = sameAlbum ? found.spotifyAlbumUri : null;
+    final canControl = await auth.canControlPlayback();
+
+    // En la Mac, directo a la app de Spotify: suena al instante (por
+    // internet a veces tardaba o la app lo ignoraba).
+    if (isMac &&
+        await _invoke('spotifyPlayUri', {'uri': uri, if (context != null) 'context': context}) ==
+            true) {
+      if (context == null && canControl) unawaited(_queueUpNext(upNext));
+      return const PlayOutcome(true);
+    }
+
+    if (canControl) {
       try {
-        if (await _playOnDevice(uri, upNext)) return const PlayOutcome(true);
-      } on SpotifyPlaybackException {
-        // Sin dispositivo o sin respuesta: en la Mac y en Android queda el
-        // camino directo a la app de Spotify (abajo). En otros lados, avisar.
-        if (!isMac && !isAndroid) rethrow;
-      }
-      // Spotify aceptó el pedido pero la app no lo puso (le pasa a la app de
-      // la Mac a veces, por ejemplo recién iniciada la sesión): se lo
-      // pedimos directo a la app.
-      if (isMac && await _invoke('spotifyPlayUri', {'uri': uri}) == true) {
+        await _playOnDevice(uri, context: context);
+        if (context == null) unawaited(_queueUpNext(upNext));
+        // Si en unos segundos no suena, se lo pedimos directo a la app.
+        if (isAndroid) unawaited(_checkStartedOrSearch(uri, found));
         return const PlayOutcome(true);
+      } on SpotifyPlaybackException {
+        if (!isAndroid) rethrow;
       }
-      if (isAndroid && await _invoke('playFromSearch', _searchArgs('spotify', found)) == true) {
+      if (await _invoke('playFromSearch', _searchArgs('spotify', found)) == true) {
         return const PlayOutcome(true);
       }
       return const PlayOutcome(false, 'Spotify no respondió. Ábrelo y vuelve a intentar.');
@@ -123,10 +138,29 @@ class PlaybackService {
     return const PlayOutcome(false, reconnect);
   }
 
-  /// Pone [uri] (y las que siguen) en el Spotify de este dispositivo. Si
-  /// Spotify está cerrado, lo abre y espera a que aparezca. Devuelve si de
-  /// verdad empezó a sonar (Spotify a veces acepta el pedido y no hace nada).
-  Future<bool> _playOnDevice(String uri, List<Song> upNext) async {
+  /// Último dispositivo usado (para no preguntarle a Spotify cada vez).
+  static String? _lastDeviceId;
+
+  /// Pone [uri] (dentro de [context], si hay) en el Spotify de este
+  /// dispositivo. Si Spotify está cerrado, lo abre y espera a que aparezca.
+  Future<void> _playOnDevice(String uri, {String? context}) async {
+    Future<void> send(String deviceId) => context != null
+        ? spotify.playInContext(context, uri, deviceId: deviceId)
+        : spotify.playUris([uri], deviceId: deviceId);
+
+    // Primero al último dispositivo usado, sin preguntar (lo más rápido).
+    final last = _lastDeviceId;
+    if (last != null) {
+      try {
+        await send(last);
+        if (isAndroid) unawaited(_invoke('bringToFront'));
+        return;
+      } on SpotifyPlaybackException catch (e) {
+        if (e.status != 404) rethrow;
+        _lastDeviceId = null;
+      }
+    }
+
     var device = _pickDevice(await spotify.devices());
     if (device == null) {
       if (await _invoke('launchApp', {'app': 'spotify'}) != true && !isDesktop) {
@@ -142,32 +176,44 @@ class PlaybackService {
         'Spotify no aparece en este dispositivo. Ábrelo una vez y vuelve a intentar.',
       );
     }
-
-    final rest = await _resolveUpNext(upNext);
-    await spotify.playUris([uri, ...rest], deviceId: device.id);
+    await send(device.id);
+    _lastDeviceId = device.id;
     // En Android abrir Spotify lo trae al frente: volvemos a Letras.
     if (isAndroid) unawaited(_invoke('bringToFront'));
-    for (var i = 0; i < 8; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 400));
-      if (await spotify.isPlaying(uri)) return true;
-    }
-    return false;
   }
 
-  /// Las siguientes en Spotify, buscadas en paralelo y sin hacer esperar
-  /// mucho: las que no aparecen a tiempo quedan afuera.
-  Future<List<String>> _resolveUpNext(List<Song> upNext) async {
-    if (upNext.isEmpty) return [];
-    final wanted = upNext.take(30).toList();
-    final results = await Future.wait([
+  /// Si a los dos segundos no está sonando [uri], se lo pide directo a la
+  /// app de Spotify (a veces acepta el pedido por internet y no hace nada).
+  Future<void> _checkStartedOrSearch(String uri, Song found) async {
+    for (var i = 0; i < 5; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 400));
+      if (await spotify.isPlaying(uri)) return;
+    }
+    await _invoke('playFromSearch', _searchArgs('spotify', found));
+  }
+
+  /// Agrega a la cola de Spotify las que siguen (unas cuantas), de fondo:
+  /// la canción ya está sonando mientras tanto.
+  Future<void> _queueUpNext(List<Song> upNext) async {
+    if (upNext.isEmpty) return;
+    final wanted = upNext.take(10).toList();
+    final uris = await Future.wait([
       for (final s in wanted)
         spotify
             .findTrack(s)
             .then((f) => f?.spotifyUri)
-            .timeout(const Duration(seconds: 4), onTimeout: () => null)
+            .timeout(const Duration(seconds: 5), onTimeout: () => null)
             .catchError((Object _) => null),
     ]);
-    return results.whereType<String>().toList();
+    // Dejamos que Spotify registre la canción nueva antes de encolar.
+    await Future<void>.delayed(const Duration(milliseconds: 800));
+    for (final u in uris.whereType<String>()) {
+      try {
+        await spotify.addToQueue(u, deviceId: _lastDeviceId);
+      } catch (_) {
+        return; // sin dispositivo activo o sin permiso: no insistir
+      }
+    }
   }
 
   /// El dispositivo donde poner la canción: el de este aparato (la compu

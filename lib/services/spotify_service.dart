@@ -122,6 +122,7 @@ class SpotifyService {
       durationSeconds: ((track['duration_ms'] as num?)?.toInt() ?? 0) ~/ 1000,
       artworkUrl: artworkUrl,
       spotifyUri: track['uri'] as String?,
+      spotifyAlbumUri: album?['uri'] as String?,
     );
   }
 
@@ -332,6 +333,23 @@ class SpotifyService {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Pone [trackUri] dentro de [contextUri] (un álbum): sigue el resto del disco.
+  Future<void> playInContext(String contextUri, String trackUri, {String? deviceId}) async {
+    final uri = Uri.https('api.spotify.com', '/v1/me/player/play', {
+      if (deviceId != null) 'device_id': deviceId,
+    });
+    final response = await AppHttp.put(
+      uri,
+      headers: {...await _authHeaders(), 'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'context_uri': contextUri,
+        'offset': {'uri': trackUri},
+      }),
+      tag: 'spotify',
+    );
+    _checkPlayer(response.statusCode, response.body);
   }
 
   /// Agrega [trackUri] a la cola de reproducción.

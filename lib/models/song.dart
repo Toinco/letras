@@ -22,6 +22,10 @@ class Song {
   /// URI de Spotify (spotify:track:...), cuando la canción viene de ahí.
   final String? spotifyUri;
 
+  /// URI del álbum en Spotify (spotify:album:...), para que al tocar una
+  /// canción de un disco siga el resto del disco.
+  final String? spotifyAlbumUri;
+
   const Song({
     required this.title,
     required this.artist,
@@ -31,6 +35,7 @@ class Song {
     this.trackNumber,
     this.appleId,
     this.spotifyUri,
+    this.spotifyAlbumUri,
   });
 
   @override
@@ -53,6 +58,7 @@ class Song {
         trackNumber: identity.trackNumber ?? trackNumber,
         appleId: identity.appleId ?? appleId,
         spotifyUri: identity.spotifyUri ?? spotifyUri,
+        spotifyAlbumUri: identity.spotifyAlbumUri ?? spotifyAlbumUri,
       );
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +70,7 @@ class Song {
         'trackNumber': trackNumber,
         if (appleId != null) 'appleId': appleId,
         if (spotifyUri != null) 'spotifyUri': spotifyUri,
+        if (spotifyAlbumUri != null) 'spotifyAlbumUri': spotifyAlbumUri,
       };
 
   factory Song.fromJson(Map<String, dynamic> json) => Song(
@@ -75,5 +82,6 @@ class Song {
         trackNumber: json['trackNumber'] as int?,
         appleId: (json['appleId'] as num?)?.toInt(),
         spotifyUri: json['spotifyUri'] as String?,
+        spotifyAlbumUri: json['spotifyAlbumUri'] as String?,
       );
 }

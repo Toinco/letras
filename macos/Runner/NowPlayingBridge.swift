@@ -178,8 +178,13 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
         result(false)
         return
       }
+      // Con un álbum de contexto, al terminar sigue el resto del disco.
+      var inContext = ""
+      if let context = args?["context"] as? String, context.hasPrefix("spotify:") {
+        inContext = " in context \(Self.quoted(context))"
+      }
       runCommand(
-        "with timeout of 15 seconds\ntell application id \"com.spotify.client\" to play track \(Self.quoted(uri))\nend timeout",
+        "with timeout of 15 seconds\ntell application id \"com.spotify.client\" to play track \(Self.quoted(uri))\(inContext)\nend timeout",
         result: result)
     case "musicSearchLibrary":
       let query = (args?["query"] as? String) ?? ""
