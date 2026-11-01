@@ -255,11 +255,30 @@ final class NowPlayingBridge: NSObject, FlutterStreamHandler {
 
   /// Corre [source] (una orden para Spotify o Música) y avisa si salió bien.
   private func runCommand(_ source: String, result: @escaping FlutterResult) {
+    // Spotify (y a veces Música) pasa al frente cuando le piden una canción:
+    // si Letras estaba adelante, la volvemos a traer, así no te saca de la app.
+    let wasActive = NSApp.isActive
     queue.async {
       var error: NSDictionary?
       NSAppleScript(source: source)?.executeAndReturnError(&error)
       self.pollNow(force: true)
-      DispatchQueue.main.async { result(error == nil) }
+      DispatchQueue.main.async {
+        result(error == nil)
+        if wasActive { Self.keepLetrasInFront() }
+      }
+    }
+  }
+
+  /// Si una app de música se puso adelante, devuelve el foco a Letras. Se
+  /// mira varias veces porque Spotify a veces se activa un momento después.
+  private static func keepLetrasInFront() {
+    let musicApps: Set<String> = ["com.spotify.client", "com.apple.Music"]
+    for delay in [0.0, 0.4, 1.0, 2.0] {
+      DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+        guard let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+              musicApps.contains(front) else { return }
+        NSApp.activate(ignoringOtherApps: true)
+      }
     }
   }
 

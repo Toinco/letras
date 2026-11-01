@@ -89,6 +89,19 @@ object MusicApps {
         if (intent.resolveActivity(context.packageManager) == null) return false
         return try {
             context.startActivity(intent)
+            // La app de música pasó al frente para buscarla: volvemos a
+            // Letras cuando ya arrancó.
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                try {
+                    context.startActivity(
+                        Intent(context, MainActivity::class.java).addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                        )
+                    )
+                } catch (e: Exception) {
+                    // Sin poder volver: el usuario vuelve a mano.
+                }
+            }, 2500)
             true
         } catch (e: Exception) {
             false
